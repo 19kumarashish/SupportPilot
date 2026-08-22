@@ -2,8 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
-import pinoHttp from "pino-http";
-
+import { pinoHttp } from "pino-http";
 import { env } from "./config/env.js";
 import { logger } from "./infrastructure/logger/index.js";
 import { healthRouter } from "./modules/health/health.routes.js";
@@ -18,7 +17,6 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(pinoHttp({ logger }));
-
 app.get("/", (_request, response) => {
   response.json({
     success: true,

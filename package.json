@@ -1,0 +1,15 @@
+{
+  "name": "supportpilot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade multi-tenant AI customer support SaaS",
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter client --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "dev:server": "pnpm --filter server dev",
+    "build": "pnpm --recursive build",
+    "type-check": "pnpm --recursive type-check",
+    "lint": "pnpm --recursive lint"
+  }
+}

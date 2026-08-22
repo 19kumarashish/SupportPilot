@@ -1,0 +1,9 @@
+packages:
+  - "client"
+  - "server"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: false
+  sharp: false
+  unrs-resolver: false
