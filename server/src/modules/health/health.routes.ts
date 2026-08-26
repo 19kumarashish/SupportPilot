@@ -1,12 +1,17 @@
 import { Router } from "express";
 
+import { checkDatabaseConnection } from "../../infrastructure/database/index.js";
+
 export const healthRouter: Router = Router();
 
-healthRouter.get("/", (_request, response) => {
-  response.status(200).json({
-    success: true,
+healthRouter.get("/", async (_request, response) => {
+  const databaseConnected = await checkDatabaseConnection();
+
+  response.status(databaseConnected ? 200 : 503).json({
+    success: databaseConnected,
     data: {
-      status: "ok",
+      status: databaseConnected ? "ok" : "degraded",
+      database: databaseConnected ? "connected" : "disconnected",
     },
   });
 });
