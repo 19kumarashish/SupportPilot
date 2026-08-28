@@ -1,15 +1,15 @@
-import express, { type Express } from "express";
+import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import { pinoHttp } from "pino-http";
 
 import { logger } from "./infrastructure/logger/index.js";
-import { healthRouter } from "./modules/health/health.routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { apiRouter } from "./routes/index.js";
 
-export const createApp = (): Express => {
+export const createApp = (): express.Express => {
   const app = express();
 
   app.use(helmet());
@@ -31,7 +31,7 @@ export const createApp = (): Express => {
     });
   });
 
-  app.use("/health", healthRouter);
+  app.use("/api/v1", apiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
