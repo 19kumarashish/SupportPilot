@@ -4,6 +4,7 @@ packages:
   - "packages/*"
 
 allowBuilds:
+  argon2: true
   esbuild: false
   sharp: false
   unrs-resolver: false
