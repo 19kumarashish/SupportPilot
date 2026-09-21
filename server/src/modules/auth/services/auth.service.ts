@@ -1,7 +1,14 @@
 import { AppError } from "../../../shared/errors/app-error.js";
-import { hashPassword } from "../../../shared/security/password.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+} from "../../../shared/security/jwt.js";
+import { hashPassword, verifyPassword } from "../../../shared/security/password.js";
 import { userRepository } from "../repositories/user.repository.js";
-import type { RegisterInput } from "../validators/auth.validators.js";
+import type {
+  LoginInput,
+  RegisterInput,
+} from "../validators/auth.validators.js";
 
 export const authService = {
   async registerUser(input: RegisterInput) {
@@ -46,6 +53,72 @@ export const authService = {
       lastName: user.lastName,
       role: user.role,
       isActive: user.isActive,
+    };
+  },
+
+  async loginUser(input: LoginInput) {
+    const user = await userRepository.findByEmail(
+      input.organizationId,
+      input.email,
+    );
+
+    if (!user) {
+      throw new AppError(
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
+    }
+
+    if (!user.isActive) {
+      throw new AppError(
+        403,
+        "USER_INACTIVE",
+        "User account is inactive",
+      );
+    }
+
+    const passwordValid = await verifyPassword(
+      input.password,
+      user.passwordHash,
+    );
+
+    if (!passwordValid) {
+      throw new AppError(
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
+    }
+
+    const accessToken = await generateAccessToken({
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role,
+      type: "access",
+    });
+
+    const refreshToken = await generateRefreshToken({
+      userId: user.id,
+      organizationId: user.organizationId,
+      type: "refresh",
+    });
+
+    return {
+      user: {
+        id: user.id,
+        organizationId: user.organizationId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        isActive: user.isActive,
+      },
+
+      tokens: {
+        accessToken,
+        refreshToken,
+      },
     };
   },
 };
