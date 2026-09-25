@@ -4,6 +4,7 @@ import { AppError } from "../../shared/errors/app-error.js";
 import { verifyAccessToken } from "../../shared/security/jwt.js";
 import { userRepository } from "./repositories/user.repository.js";
 import type { AuthenticatedRequest } from "./types/auth-request.types.js";
+import type { AuthUser } from "./types/auth.types.js";
 
 export const requireAuth: RequestHandler = async (
   request,
@@ -87,4 +88,37 @@ export const requireAuth: RequestHandler = async (
       ),
     );
   }
+};
+
+export const requireRole = (
+  ...allowedRoles: AuthUser["role"][]
+): RequestHandler => {
+  return (request, _response, next) => {
+    const authenticatedRequest =
+      request as Partial<AuthenticatedRequest>;
+
+    if (!authenticatedRequest.user) {
+      next(
+        new AppError(
+          401,
+          "AUTHENTICATION_REQUIRED",
+          "Authentication required",
+        ),
+      );
+      return;
+    }
+
+    if (!allowedRoles.includes(authenticatedRequest.user.role)) {
+      next(
+        new AppError(
+          403,
+          "INSUFFICIENT_PERMISSIONS",
+          "Insufficient permissions",
+        ),
+      );
+      return;
+    }
+
+    next();
+  };
 };

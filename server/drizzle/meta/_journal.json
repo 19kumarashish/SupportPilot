@@ -15,6 +15,13 @@
       "when": 1787922716971,
       "tag": "0001_flaky_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789999184235,
+      "tag": "0002_clear_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }
