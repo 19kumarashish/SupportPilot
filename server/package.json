@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
+    "test:integration": "tsx --test ../tests/integration/organizations.test.ts",
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
