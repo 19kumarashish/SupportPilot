@@ -4,11 +4,27 @@ import { db } from "../../../infrastructure/database/index.js";
 import { users } from "../../../infrastructure/database/schema/users.js";
 
 export const userRepository = {
+  // Token authentication resolves users before tenant context is available.
   async findById(id: string) {
     const result = await db
       .select()
       .from(users)
       .where(eq(users.id, id))
+      .limit(1);
+
+    return result[0] ?? null;
+  },
+
+  async findByIdInOrganization(organizationId: string, userId: string) {
+    const result = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.organizationId, organizationId),
+          eq(users.id, userId),
+        ),
+      )
       .limit(1);
 
     return result[0] ?? null;
@@ -38,9 +54,12 @@ export const userRepository = {
     return result[0];
   },
 
-  async update(
-    id: string,
-    data: Partial<typeof users.$inferInsert>,
+  async updateInOrganization(
+    organizationId: string,
+    userId: string,
+    data: Partial<
+      Omit<typeof users.$inferInsert, "id" | "organizationId">
+    >,
   ) {
     const result = await db
       .update(users)
@@ -48,16 +67,26 @@ export const userRepository = {
         ...data,
         updatedAt: new Date(),
       })
-      .where(eq(users.id, id))
+      .where(
+        and(
+          eq(users.organizationId, organizationId),
+          eq(users.id, userId),
+        ),
+      )
       .returning();
 
     return result[0] ?? null;
   },
 
-  async delete(id: string) {
+  async deleteInOrganization(organizationId: string, userId: string) {
     const result = await db
       .delete(users)
-      .where(eq(users.id, id))
+      .where(
+        and(
+          eq(users.organizationId, organizationId),
+          eq(users.id, userId),
+        ),
+      )
       .returning({ id: users.id });
 
     return result[0] ?? null;

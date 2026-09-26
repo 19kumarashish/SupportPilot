@@ -19,7 +19,12 @@ export const createApp = (): express.Express => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  app.use(pinoHttp({ logger }));
+  app.use(
+    pinoHttp({
+      logger,
+      redact: ["req.headers.authorization"],
+    }),
+  );
 
   app.get("/", (_request, response) => {
     response.json({
