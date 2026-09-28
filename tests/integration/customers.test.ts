@@ -1,0 +1,1 @@
+import "../../server/src/modules/customers/customers.test.js";
