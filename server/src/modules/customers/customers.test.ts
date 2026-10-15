@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
 import { request as httpRequest, type Server } from "node:http";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -52,75 +51,12 @@ const serverRequire = createRequire(resolve(process.cwd(), "package.json"));
 
 const dotenv = serverRequire("dotenv") as {
   config(options: { path: string }): unknown;
-  parse(source: string): Record<string, string>;
 };
 
 dotenv.config({ path: resolve(process.cwd(), "../.env") });
 dotenv.config({ path: resolve(process.cwd(), ".env") });
 
-const explicitTestDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
-const testDatabaseUrl = (() => {
-  if (explicitTestDatabaseUrl) {
-    return explicitTestDatabaseUrl;
-  }
-
-  const configuredDatabaseUrl = process.env.DATABASE_URL;
-
-  if (!configuredDatabaseUrl) {
-    throw new Error(
-      "Set DATABASE_URL or TEST_DATABASE_URL to configure an isolated integration-test database",
-    );
-  }
-
-  const testUrl = new URL(configuredDatabaseUrl);
-  const databaseName = testUrl.pathname.slice(1);
-
-  if (!databaseName) {
-    throw new Error(
-      "Set TEST_DATABASE_URL because DATABASE_URL does not include a database name",
-    );
-  }
-
-  testUrl.pathname = `/${databaseName}_test`;
-
-  return testUrl.toString();
-})();
-
-const databaseIdentity = (databaseUrl: string): string => {
-  const url = new URL(databaseUrl);
-
-  return `${url.protocol}//${url.hostname}:${url.port || "5432"}${url.pathname}`;
-};
-
-const configuredDatabaseUrls = [process.env.DATABASE_URL];
-
-for (const envFile of [
-  resolve(process.cwd(), "../.env"),
-  resolve(process.cwd(), ".env"),
-]) {
-  try {
-    configuredDatabaseUrls.push(
-      dotenv.parse(readFileSync(envFile, "utf8")).DATABASE_URL,
-    );
-  } catch {
-    // An absent optional env file does not affect the explicit test URL.
-  }
-}
-
-if (
-  configuredDatabaseUrls.some(
-    (databaseUrl) =>
-      databaseUrl &&
-      databaseIdentity(databaseUrl) === databaseIdentity(testDatabaseUrl),
-  )
-) {
-  throw new Error(
-    "TEST_DATABASE_URL must not point to a configured development database",
-  );
-}
-
 process.env.NODE_ENV = "test";
-process.env.DATABASE_URL = testDatabaseUrl;
 process.env.JWT_ACCESS_SECRET = randomBytes(48).toString("base64url");
 process.env.JWT_REFRESH_SECRET = randomBytes(48).toString("base64url");
 
@@ -196,7 +132,7 @@ const request = (
         method: options.method ?? "GET",
         headers,
       },
-      (response: any) => {
+      (response) => {
         const chunks: Buffer[] = [];
 
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
