@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { request as httpRequest, type Server } from "node:http";
-import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
+import { getTestDatabaseUrl } from "./test-database-url.js";
 
 interface SafeUser {
   id: string;
@@ -54,46 +54,15 @@ interface RequestOptions {
 const serverRequire = createRequire(resolve(process.cwd(), "package.json"));
 const dotenv = serverRequire("dotenv") as {
   config(options: { path: string }): unknown;
-  parse(source: string): Record<string, string>;
 };
 
 dotenv.config({ path: resolve(process.cwd(), "../.env") });
 dotenv.config({ path: resolve(process.cwd(), ".env") });
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
-
-if (!testDatabaseUrl) {
-  throw new Error("TEST_DATABASE_URL must point to a dedicated test database");
-}
-
-const databaseIdentity = (databaseUrl: string): string => {
-  const url = new URL(databaseUrl);
-  return `${url.protocol}//${url.hostname}:${url.port || "5432"}${url.pathname}`;
-};
-
-const configuredDatabaseUrls = [process.env.DATABASE_URL];
-
-for (const envFile of [resolve(process.cwd(), "../.env"), resolve(process.cwd(), ".env")]) {
-  try {
-    configuredDatabaseUrls.push(
-      dotenv.parse(readFileSync(envFile, "utf8")).DATABASE_URL,
-    );
-  } catch {
-    // An absent optional env file does not affect the explicit test URL.
-  }
-}
-
-if (
-  configuredDatabaseUrls.some(
-    (databaseUrl) =>
-      databaseUrl &&
-      databaseIdentity(databaseUrl) === databaseIdentity(testDatabaseUrl),
-  )
-) {
-  throw new Error(
-    "TEST_DATABASE_URL must not point to a configured development database",
-  );
-}
+const testDatabaseUrl = getTestDatabaseUrl(
+  process.env.DATABASE_URL,
+  process.env.TEST_DATABASE_URL,
+);
 
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = testDatabaseUrl;
