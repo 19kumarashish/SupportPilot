@@ -1,9 +1,11 @@
+
 import type { RequestHandler } from "express";
 
 import { AppError } from "../../shared/errors/app-error.js";
 import { getTenantContext } from "../../shared/tenant-context.js";
 import { ticketService } from "./services/ticket.service.js";
 import {
+  assignTicketSchema,
   createTicketSchema,
   listTicketsQuerySchema,
   ticketIdParamsSchema,
@@ -105,6 +107,27 @@ export const updateTicketStatus: RequestHandler = async (
   }
 
   const ticket = await ticketService.updateTicketStatus(
+    organizationId,
+    parsedParams.data.id,
+    parsedInput.data,
+  );
+
+  response.status(200).json({
+    success: true,
+    data: { ticket },
+  });
+};
+
+export const assignTicket: RequestHandler = async (request, response) => {
+  const { organizationId } = getTenantContext(request);
+  const parsedParams = ticketIdParamsSchema.safeParse(request.params);
+  const parsedInput = assignTicketSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedInput.success) {
+    throw validationError();
+  }
+
+  const ticket = await ticketService.assignTicket(
     organizationId,
     parsedParams.data.id,
     parsedInput.data,

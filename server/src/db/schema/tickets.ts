@@ -10,6 +10,7 @@ import {
 
 import { customers } from "./customers.js";
 import { organizations } from "../../infrastructure/database/schema/organizations.js";
+import { users } from "../../infrastructure/database/schema/users.js";
 
 export const ticketStatuses = [
   "open",
@@ -42,6 +43,10 @@ export const tickets = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
 
+    assignedTo: uuid("assigned_to").references(() => users.id, {
+      onDelete: "set null",
+    }),
+
     subject: varchar("subject", { length: 255 }).notNull(),
 
     description: text("description").notNull(),
@@ -64,17 +69,25 @@ export const tickets = pgTable(
   },
   (table) => [
     index("tickets_customer_id_idx").on(table.customerId),
+
     index("tickets_organization_status_idx").on(
       table.organizationId,
       table.status,
     ),
+
     index("tickets_organization_priority_idx").on(
       table.organizationId,
       table.priority,
     ),
+
     index("tickets_organization_created_at_idx").on(
       table.organizationId,
       table.createdAt,
+    ),
+
+    index("tickets_organization_assigned_to_idx").on(
+      table.organizationId,
+      table.assignedTo,
     ),
   ],
 );
