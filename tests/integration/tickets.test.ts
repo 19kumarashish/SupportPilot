@@ -12,6 +12,7 @@ interface SafeTicket {
   id: string;
   organizationId: string;
   customerId: string;
+  assignedTo: string | null;
   subject: string;
   description: string;
   status: "open" | "in_progress" | "resolved" | "closed";
@@ -91,6 +92,8 @@ const organizationAId = randomUUID();
 const organizationBId = randomUUID();
 const adminAId = randomUUID();
 const agentAId = randomUUID();
+const secondAgentAId = randomUUID();
+const inactiveAgentAId = randomUUID();
 const adminBId = randomUUID();
 const customerAId = randomUUID();
 const customerBId = randomUUID();
@@ -102,8 +105,6 @@ let adminBToken: string;
 let server: Server | undefined;
 let serverPort: number;
 let migrationsComplete = false;
-let ticketAId: string | undefined;
-let ticketBId: string | undefined;
 
 const request = (
   path: string,
@@ -164,6 +165,23 @@ const ticketBody = (customerId: string, subject: string) => ({
   description: `Description for ${subject}`,
 });
 
+const createTicket = async (
+  token: string,
+  customerId: string,
+  subject: string,
+): Promise<string> => {
+  const response = await request("/api/v1/tickets", {
+    method: "POST",
+    token,
+    body: ticketBody(customerId, subject),
+  });
+
+  assert.equal(response.status, 201);
+  const ticketId = response.body.data?.ticket?.id;
+  assert.ok(ticketId);
+  return ticketId;
+};
+
 describe("/api/v1/tickets tenant management", () => {
   before(async () => {
     await migrate(db, { migrationsFolder: migrationFolder });
@@ -200,6 +218,25 @@ describe("/api/v1/tickets tenant management", () => {
         firstName: "Agent",
         lastName: "A",
         role: "agent",
+      },
+      {
+        id: secondAgentAId,
+        organizationId: organizationAId,
+        email: `ticket-agent-a-second-${secondAgentAId}@example.test`,
+        passwordHash: randomBytes(32).toString("hex"),
+        firstName: "Second",
+        lastName: "Agent A",
+        role: "agent",
+      },
+      {
+        id: inactiveAgentAId,
+        organizationId: organizationAId,
+        email: `ticket-agent-a-inactive-${inactiveAgentAId}@example.test`,
+        passwordHash: randomBytes(32).toString("hex"),
+        firstName: "Inactive",
+        lastName: "Agent A",
+        role: "agent",
+        isActive: false,
       },
       {
         id: adminBId,
@@ -286,6 +323,210 @@ describe("/api/v1/tickets tenant management", () => {
     assert.equal(response.body.error?.code, "AUTHENTICATION_REQUIRED");
   });
 
+  it("rejects unauthenticated assignment requests", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Unauthenticated assignment",
+    );
+    const response = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        body: { assignedTo: agentAId },
+      },
+    );
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error?.code, "AUTHENTICATION_REQUIRED");
+  });
+
+  it("forbids agents from assigning tickets", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Agent assignment forbidden",
+    );
+    const response = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: agentAToken,
+        body: { assignedTo: agentAId },
+      },
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.error?.code, "INSUFFICIENT_PERMISSIONS");
+  });
+
+  it("assigns, reassigns, and unassigns tickets for an admin", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Assignment lifecycle",
+    );
+
+    const assigned = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: agentAId },
+      },
+    );
+    assert.equal(assigned.status, 200);
+    assert.equal(assigned.body.data?.ticket?.assignedTo, agentAId);
+
+    const fetched = await request(`/api/v1/tickets/${ticketId}`, {
+      token: agentAToken,
+    });
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.data?.ticket?.assignedTo, agentAId);
+
+    const reassigned = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: secondAgentAId },
+      },
+    );
+    assert.equal(reassigned.status, 200);
+    assert.equal(reassigned.body.data?.ticket?.assignedTo, secondAgentAId);
+
+    const unassigned = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: null },
+      },
+    );
+    assert.equal(unassigned.status, 200);
+    assert.equal(unassigned.body.data?.ticket?.assignedTo, null);
+  });
+
+  it("rejects missing, cross-organization, inactive, and non-agent assignees", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Invalid assignee cases",
+    );
+
+    const missingAssignee = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: randomUUID() },
+      },
+    );
+    assert.equal(missingAssignee.status, 404);
+    assert.equal(missingAssignee.body.error?.code, "ASSIGNEE_NOT_FOUND");
+
+    const crossOrganizationAssignee = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: adminBId },
+      },
+    );
+    assert.equal(crossOrganizationAssignee.status, 404);
+    assert.equal(
+      crossOrganizationAssignee.body.error?.code,
+      "ASSIGNEE_NOT_FOUND",
+    );
+
+    const inactiveAssignee = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: inactiveAgentAId },
+      },
+    );
+    assert.equal(inactiveAssignee.status, 409);
+    assert.equal(inactiveAssignee.body.error?.code, "ASSIGNEE_INACTIVE");
+
+    const adminAssignee = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: adminAId },
+      },
+    );
+    assert.equal(adminAssignee.status, 409);
+    assert.equal(adminAssignee.body.error?.code, "ASSIGNEE_NOT_AGENT");
+
+    const unchanged = await request(`/api/v1/tickets/${ticketId}`, {
+      token: adminAToken,
+    });
+    assert.equal(unchanged.body.data?.ticket?.assignedTo, null);
+  });
+
+  it("rejects invalid assignment bodies without changing assignment", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Invalid assignment body",
+    );
+
+    const invalidUuid = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: "not-a-uuid" },
+      },
+    );
+    assert.equal(invalidUuid.status, 400);
+    assert.equal(invalidUuid.body.error?.code, "VALIDATION_ERROR");
+
+    const unexpectedProperty = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: agentAId, organizationId: organizationBId },
+      },
+    );
+    assert.equal(unexpectedProperty.status, 400);
+    assert.equal(unexpectedProperty.body.error?.code, "VALIDATION_ERROR");
+
+    const unchanged = await request(`/api/v1/tickets/${ticketId}`, {
+      token: adminAToken,
+    });
+    assert.equal(unchanged.body.data?.ticket?.assignedTo, null);
+  });
+
+  it("does not assign tickets from another organization", async () => {
+    const ticketId = await createTicket(
+      adminBToken,
+      customerBId,
+      "Foreign assignment ticket",
+    );
+
+    const response = await request(
+      `/api/v1/tickets/${ticketId}/assignment`,
+      {
+        method: "PATCH",
+        token: adminAToken,
+        body: { assignedTo: agentAId },
+      },
+    );
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error?.code, "TICKET_NOT_FOUND");
+
+    const visibleToOwner = await request(`/api/v1/tickets/${ticketId}`, {
+      token: adminBToken,
+    });
+    assert.equal(visibleToOwner.status, 200);
+    assert.equal(visibleToOwner.body.data?.ticket?.assignedTo, null);
+  });
+
   it("creates and retrieves a ticket for an authenticated user", async () => {
     const created = await request("/api/v1/tickets", {
       method: "POST",
@@ -298,14 +539,14 @@ describe("/api/v1/tickets tenant management", () => {
     assert.equal(created.body.data?.ticket?.customerId, customerAId);
     assert.equal(created.body.data?.ticket?.status, "open");
     assert.equal(created.body.data?.ticket?.priority, "medium");
-    ticketAId = created.body.data?.ticket?.id;
-    assert.ok(ticketAId);
+    const ticketId = created.body.data?.ticket?.id;
+    assert.ok(ticketId);
 
-    const fetched = await request(`/api/v1/tickets/${ticketAId}`, {
+    const fetched = await request(`/api/v1/tickets/${ticketId}`, {
       token: agentAToken,
     });
     assert.equal(fetched.status, 200);
-    assert.equal(fetched.body.data?.ticket?.id, ticketAId);
+    assert.equal(fetched.body.data?.ticket?.id, ticketId);
     assert.equal(fetched.body.data?.ticket?.subject, "Initial ticket");
   });
 
@@ -377,7 +618,7 @@ describe("/api/v1/tickets tenant management", () => {
       body: ticketBody(customerBId, "Organization B ticket"),
     });
     assert.equal(created.status, 201);
-    ticketBId = created.body.data?.ticket?.id;
+    const ticketBId = created.body.data?.ticket?.id;
     assert.ok(ticketBId);
 
     const foreignGet = await request(`/api/v1/tickets/${ticketBId}`, {
@@ -405,13 +646,18 @@ describe("/api/v1/tickets tenant management", () => {
   });
 
   it("lists tickets with tenant-scoped pagination and supported filters", async () => {
-    assert.ok(ticketAId);
-
+    const listCustomerId = randomUUID();
+    await db.insert(customers).values({
+      id: listCustomerId,
+      organizationId: organizationAId,
+      name: "Ticket List Customer",
+    });
+    await createTicket(adminAToken, listCustomerId, "List baseline ticket");
     const second = await request("/api/v1/tickets", {
       method: "POST",
       token: adminAToken,
       body: {
-        ...ticketBody(customerAId, "High priority ticket"),
+        ...ticketBody(listCustomerId, "High priority ticket"),
         priority: "high",
         status: "in_progress",
       },
@@ -419,7 +665,7 @@ describe("/api/v1/tickets tenant management", () => {
     assert.equal(second.status, 201);
 
     const paginated = await request(
-      "/api/v1/tickets?page=1&limit=1",
+      `/api/v1/tickets?page=1&limit=1&customerId=${listCustomerId}`,
       { token: adminAToken },
     );
     assert.equal(paginated.status, 200);
@@ -434,7 +680,7 @@ describe("/api/v1/tickets tenant management", () => {
     );
 
     const filtered = await request(
-      "/api/v1/tickets?status=in_progress&priority=high",
+      `/api/v1/tickets?status=in_progress&priority=high&customerId=${listCustomerId}`,
       { token: adminAToken },
     );
     assert.equal(filtered.status, 200);
@@ -454,9 +700,13 @@ describe("/api/v1/tickets tenant management", () => {
   });
 
   it("updates permitted details and status while ignoring client tenant selectors", async () => {
-    assert.ok(ticketAId);
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Ticket details update",
+    );
 
-    const updated = await request(`/api/v1/tickets/${ticketAId}`, {
+    const updated = await request(`/api/v1/tickets/${ticketId}`, {
       method: "PATCH",
       token: adminAToken,
       body: {
@@ -467,7 +717,7 @@ describe("/api/v1/tickets tenant management", () => {
     });
     assert.equal(updated.status, 400);
 
-    const successfulUpdate = await request(`/api/v1/tickets/${ticketAId}`, {
+    const successfulUpdate = await request(`/api/v1/tickets/${ticketId}`, {
       method: "PATCH",
       token: adminAToken,
       body: {
@@ -484,7 +734,7 @@ describe("/api/v1/tickets tenant management", () => {
     );
 
     const statusUpdate = await request(
-      `/api/v1/tickets/${ticketAId}/status`,
+      `/api/v1/tickets/${ticketId}/status`,
       {
         method: "PATCH",
         token: agentAToken,

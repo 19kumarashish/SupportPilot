@@ -5,6 +5,7 @@ import { ticketRepository } from "./repositories/ticket.repository.js";
 import { ticketService } from "./services/ticket.service.js";
 import type { TicketResponse } from "./types/ticket.types.js";
 import {
+  assignTicketSchema,
   createTicketSchema,
   listTicketsQuerySchema,
   ticketStatusSchema,
@@ -13,11 +14,13 @@ import {
 
 const organizationId = "bd288f02-9baf-4551-a278-e09f2adabf00";
 const customerId = "f0838fa6-7b5d-45f2-9584-166ac0c498bf";
+const agentId = "c46ae685-5d3a-4380-a23b-580ed8571540";
 
 const ticketFixture: TicketResponse = {
   id: "20149f54-3fe5-4d8c-b223-4053470f2bd9",
   organizationId,
   customerId,
+  assignedTo: null,
   subject: "Cannot access account",
   description: "Account sign-in fails",
   status: "open",
@@ -107,6 +110,28 @@ describe("ticket validators", () => {
     assert.equal(
       updateTicketSchema.safeParse({ subject: "Updated subject" }).success,
       true,
+    );
+  });
+
+  it("accepts assignments and unassignments but rejects malformed or extra data", () => {
+    assert.deepEqual(
+      assignTicketSchema.parse({ assignedTo: agentId }),
+      { assignedTo: agentId },
+    );
+    assert.deepEqual(
+      assignTicketSchema.parse({ assignedTo: null }),
+      { assignedTo: null },
+    );
+    assert.equal(
+      assignTicketSchema.safeParse({ assignedTo: "not-a-uuid" }).success,
+      false,
+    );
+    assert.equal(
+      assignTicketSchema.safeParse({
+        assignedTo: agentId,
+        organizationId,
+      }).success,
+      false,
     );
   });
 });
@@ -289,5 +314,213 @@ describe("ticket service customer and tenant checks", () => {
 
     assert.equal(result.status, "resolved");
     assert.equal(updateStatus.mock.callCount(), 1);
+  });
+});
+
+describe("ticket service assignment and tenant checks", () => {
+  it("assigns a ticket to an active agent in the same organization", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async (requestedOrganizationId: string, requestedTicketId: string) => {
+        assert.equal(requestedOrganizationId, organizationId);
+        assert.equal(requestedTicketId, ticketFixture.id);
+        return ticketFixture;
+      },
+    );
+    context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async (requestedOrganizationId: string, requestedUserId: string) => {
+        assert.equal(requestedOrganizationId, organizationId);
+        assert.equal(requestedUserId, agentId);
+        return { id: agentId, role: "agent" as const, isActive: true };
+      },
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async (
+        requestedOrganizationId: string,
+        requestedTicketId: string,
+        assignedTo: string | null,
+      ) => {
+        assert.equal(requestedOrganizationId, organizationId);
+        assert.equal(requestedTicketId, ticketFixture.id);
+        assert.equal(assignedTo, agentId);
+        return { ...ticketFixture, assignedTo };
+      },
+    );
+
+    const result = await ticketService.assignTicket(
+      organizationId,
+      ticketFixture.id,
+      { assignedTo: agentId },
+    );
+
+    assert.equal(result.assignedTo, agentId);
+    assert.equal(updateAssignment.mock.callCount(), 1);
+  });
+
+  it("rejects a missing or cross-organization assignee without updating", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async () => ticketFixture,
+    );
+    context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async () => null,
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async () => ticketFixture,
+    );
+
+    await assert.rejects(
+      ticketService.assignTicket(organizationId, ticketFixture.id, {
+        assignedTo: agentId,
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "ASSIGNEE_NOT_FOUND",
+    );
+
+    assert.equal(updateAssignment.mock.callCount(), 0);
+  });
+
+  it("rejects inactive agents without updating", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async () => ticketFixture,
+    );
+    context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async () => ({ id: agentId, role: "agent" as const, isActive: false }),
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async () => ticketFixture,
+    );
+
+    await assert.rejects(
+      ticketService.assignTicket(organizationId, ticketFixture.id, {
+        assignedTo: agentId,
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "ASSIGNEE_INACTIVE",
+    );
+
+    assert.equal(updateAssignment.mock.callCount(), 0);
+  });
+
+  it("rejects admins as assignees without updating", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async () => ticketFixture,
+    );
+    context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async () => ({ id: agentId, role: "admin" as const, isActive: true }),
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async () => ticketFixture,
+    );
+
+    await assert.rejects(
+      ticketService.assignTicket(organizationId, ticketFixture.id, {
+        assignedTo: agentId,
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "ASSIGNEE_NOT_AGENT",
+    );
+
+    assert.equal(updateAssignment.mock.callCount(), 0);
+  });
+
+  it("unassigns a ticket without checking a user", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async () => ticketFixture,
+    );
+    const userLookup = context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async () => null,
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async (
+        requestedOrganizationId: string,
+        requestedTicketId: string,
+        assignedTo: string | null,
+      ) => {
+        assert.equal(requestedOrganizationId, organizationId);
+        assert.equal(requestedTicketId, ticketFixture.id);
+        assert.equal(assignedTo, null);
+        return ticketFixture;
+      },
+    );
+
+    const result = await ticketService.assignTicket(
+      organizationId,
+      ticketFixture.id,
+      { assignedTo: null },
+    );
+
+    assert.equal(result.assignedTo, null);
+    assert.equal(userLookup.mock.callCount(), 0);
+    assert.equal(updateAssignment.mock.callCount(), 1);
+  });
+
+  it("does not inspect assignees or update tickets outside the organization", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async () => null,
+    );
+    const userLookup = context.mock.method(
+      ticketRepository,
+      "findUserInOrganization",
+      async () => ({ id: agentId, role: "agent" as const, isActive: true }),
+    );
+    const updateAssignment = context.mock.method(
+      ticketRepository,
+      "updateAssignmentInOrganization",
+      async () => ticketFixture,
+    );
+
+    await assert.rejects(
+      ticketService.assignTicket(organizationId, ticketFixture.id, {
+        assignedTo: agentId,
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "TICKET_NOT_FOUND",
+    );
+
+    assert.equal(userLookup.mock.callCount(), 0);
+    assert.equal(updateAssignment.mock.callCount(), 0);
   });
 });

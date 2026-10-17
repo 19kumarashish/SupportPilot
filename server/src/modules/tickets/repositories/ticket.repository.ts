@@ -3,6 +3,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { customers } from "../../../db/schema/customers.js";
 import { tickets } from "../../../db/schema/tickets.js";
 import { db } from "../../../infrastructure/database/index.js";
+import { users } from "../../../infrastructure/database/schema/users.js";
 import type {
   CreateTicketInput,
   ListTicketsQuery,
@@ -14,6 +15,7 @@ const ticketSelect = {
   id: tickets.id,
   organizationId: tickets.organizationId,
   customerId: tickets.customerId,
+  assignedTo: tickets.assignedTo,
   subject: tickets.subject,
   description: tickets.description,
   status: tickets.status,
@@ -22,7 +24,31 @@ const ticketSelect = {
   updatedAt: tickets.updatedAt,
 };
 
+export type TicketRecord = typeof tickets.$inferSelect;
+
 export const ticketRepository = {
+  async findUserInOrganization(
+    organizationId: string,
+    userId: string,
+  ) {
+    const [user] = await db
+      .select({
+        id: users.id,
+        role: users.role,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(
+        and(
+          eq(users.id, userId),
+          eq(users.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+
+    return user ?? null;
+  },
+
   async findCustomerInOrganization(
     organizationId: string,
     customerId: string,
@@ -139,6 +165,67 @@ export const ticketRepository = {
       .returning(ticketSelect);
 
     return ticket ?? null;
+  },
+
+  async updateAssignmentInOrganization(
+    organizationId: string,
+    ticketId: string,
+    assignedTo: string | null,
+  ) {
+    if (assignedTo === null) {
+      const [ticket] = await db
+        .update(tickets)
+        .set({
+          assignedTo,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(tickets.id, ticketId),
+            eq(tickets.organizationId, organizationId),
+          ),
+        )
+        .returning(ticketSelect);
+
+      return ticket ?? null;
+    }
+
+    return db.transaction(async (transaction) => {
+      const [assignee] = await transaction
+        .select({
+          role: users.role,
+          isActive: users.isActive,
+        })
+        .from(users)
+        .where(
+          and(
+            eq(users.id, assignedTo),
+            eq(users.organizationId, organizationId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+
+      if (!assignee || assignee.role !== "agent" || !assignee.isActive) {
+        return null;
+      }
+
+      const [ticket] = await transaction
+        .update(tickets)
+        .set({
+          assignedTo,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(tickets.id, ticketId),
+            eq(tickets.organizationId, organizationId),
+          ),
+        )
+        .returning(ticketSelect);
+
+      return ticket ?? null;
+    });
   },
 
   async updateStatusInOrganization(

@@ -1,3 +1,4 @@
+
 import { z } from "zod";
 
 import {
@@ -50,5 +51,11 @@ export const updateTicketSchema = z
 export const ticketStatusSchema = z
   .object({
     status: z.enum(ticketStatuses),
+  })
+  .strict();
+
+export const assignTicketSchema = z
+  .object({
+    assignedTo: z.union([z.uuid(), z.null()]),
   })
   .strict();

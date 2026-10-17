@@ -1,5 +1,7 @@
+
 import type { tickets } from "../../../db/schema/tickets.js";
 import type {
+  assignTicketSchema,
   createTicketSchema,
   listTicketsQuerySchema,
   ticketStatusSchema,
@@ -13,6 +15,7 @@ export type TicketResponse = Pick<
   | "id"
   | "organizationId"
   | "customerId"
+  | "assignedTo"
   | "subject"
   | "description"
   | "status"
@@ -29,6 +32,10 @@ export type UpdateTicketInput = ReturnType<
 
 export type TicketStatusInput = ReturnType<
   typeof ticketStatusSchema.parse
+>;
+
+export type AssignTicketInput = ReturnType<
+  typeof assignTicketSchema.parse
 >;
 
 export type ListTicketsQuery = ReturnType<typeof listTicketsQuerySchema.parse>;
