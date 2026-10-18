@@ -10,6 +10,12 @@ import type {
 
 export type Ticket = typeof tickets.$inferSelect;
 
+export type TicketSlaStatus =
+  | "on_track"
+  | "at_risk"
+  | "breached"
+  | "completed";
+
 export type TicketResponse = Pick<
   Ticket,
   | "id"
@@ -22,7 +28,12 @@ export type TicketResponse = Pick<
   | "priority"
   | "createdAt"
   | "updatedAt"
->;
+> & {
+  slaDeadline?: string;
+  responseDeadline?: string;
+  slaStatus?: TicketSlaStatus;
+  isSlaBreached?: boolean;
+};
 
 export type CreateTicketInput = ReturnType<typeof createTicketSchema.parse>;
 

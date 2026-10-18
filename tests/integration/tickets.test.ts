@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { request as httpRequest, type Server } from "node:http";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 import { getTestDatabaseUrl } from "./test-database-url.js";
@@ -25,6 +26,10 @@ interface ApiResponse {
   success?: boolean;
   data?: {
     ticket?: SafeTicket;
+    comment?: SafeComment;
+    comments?: SafeComment[];
+    attachment?: SafeAttachment;
+    attachments?: SafeAttachment[];
     items?: SafeTicket[];
     page?: number;
     limit?: number;
@@ -37,13 +42,32 @@ interface ApiResponse {
   };
 }
 
+interface SafeComment {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  body: string;
+  isInternal: boolean;
+  createdAt: string;
+}
+
+interface SafeAttachment {
+  id: string;
+  ticketId: string;
+  uploaderId: string;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 interface HttpResponse {
   status: number;
   body: ApiResponse;
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
   headers?: Record<string, string>;
@@ -65,6 +89,13 @@ process.env.NODE_ENV = "test";
 process.env.JWT_ACCESS_SECRET = randomBytes(48).toString("base64url");
 process.env.JWT_REFRESH_SECRET = randomBytes(48).toString("base64url");
 
+const attachmentStoragePath = resolve(
+  process.cwd(),
+  "tmp",
+  `ticket-attachments-${randomUUID()}`,
+);
+process.env.ATTACHMENT_STORAGE_PATH = attachmentStoragePath;
+
 const migrationUrl = pathToFileURL(
   serverRequire.resolve("drizzle-orm/node-postgres/migrator"),
 ).href;
@@ -76,6 +107,7 @@ const [
   { users },
   { customers },
   { generateAccessToken },
+  { ticketCommentService },
   { migrate },
 ] = await Promise.all([
   import("../../server/src/app.js"),
@@ -84,6 +116,7 @@ const [
   import("../../server/src/infrastructure/database/schema/users.js"),
   import("../../server/src/db/schema/customers.js"),
   import("../../server/src/shared/security/jwt.js"),
+  import("../../server/src/modules/tickets/comments/comment.service.js"),
   import(migrationUrl),
 ]);
 
@@ -139,6 +172,63 @@ const request = (
         response.on("error", rejectRequest);
         response.on("end", () => {
           try {
+            const responseBody = Buffer.concat(chunks).toString("utf8");
+            resolveRequest({
+              status: response.statusCode ?? 0,
+              body: responseBody ? (JSON.parse(responseBody) as ApiResponse) : {},
+            });
+          } catch (error) {
+            rejectRequest(error);
+          }
+        });
+      },
+    );
+
+    outboundRequest.on("error", rejectRequest);
+    if (serializedBody !== undefined) {
+      outboundRequest.write(serializedBody);
+    }
+    outboundRequest.end();
+  });
+
+const requestMultipart = (
+  path: string,
+  token: string | undefined,
+  filename: string,
+  contentType: string,
+  contents: Buffer,
+): Promise<HttpResponse> => {
+  const boundary = `----SupportPilot${randomUUID()}`;
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`,
+    ),
+    contents,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const headers: Record<string, string> = {
+    "content-type": `multipart/form-data; boundary=${boundary}`,
+    "content-length": String(body.length),
+  };
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  return new Promise((resolveRequest, rejectRequest) => {
+    const outboundRequest = httpRequest(
+      {
+        hostname: "127.0.0.1",
+        port: serverPort,
+        path,
+        method: "POST",
+        headers,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("error", rejectRequest);
+        response.on("end", () => {
+          try {
             resolveRequest({
               status: response.statusCode ?? 0,
               body: JSON.parse(
@@ -153,9 +243,37 @@ const request = (
     );
 
     outboundRequest.on("error", rejectRequest);
-    if (serializedBody !== undefined) {
-      outboundRequest.write(serializedBody);
-    }
+    outboundRequest.end(body);
+  });
+};
+
+const requestDownload = (
+  path: string,
+  token: string,
+): Promise<{ status: number; contentType: string | undefined; body: Buffer }> =>
+  new Promise((resolveRequest, rejectRequest) => {
+    const outboundRequest = httpRequest(
+      {
+        hostname: "127.0.0.1",
+        port: serverPort,
+        path,
+        headers: { authorization: `Bearer ${token}` },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("error", rejectRequest);
+        response.on("end", () => {
+          resolveRequest({
+            status: response.statusCode ?? 0,
+            contentType: response.headers["content-type"],
+            body: Buffer.concat(chunks),
+          });
+        });
+      },
+    );
+
+    outboundRequest.on("error", rejectRequest);
     outboundRequest.end();
   });
 
@@ -313,7 +431,11 @@ describe("/api/v1/tickets tenant management", () => {
         );
       }
     } finally {
-      await pool.end();
+      try {
+        await pool.end();
+      } finally {
+        await rm(attachmentStoragePath, { recursive: true, force: true });
+      }
     }
   });
 
@@ -539,6 +661,10 @@ describe("/api/v1/tickets tenant management", () => {
     assert.equal(created.body.data?.ticket?.customerId, customerAId);
     assert.equal(created.body.data?.ticket?.status, "open");
     assert.equal(created.body.data?.ticket?.priority, "medium");
+    assert.ok(created.body.data?.ticket?.slaDeadline);
+    assert.ok(created.body.data?.ticket?.responseDeadline);
+    assert.equal(created.body.data?.ticket?.slaStatus, "on_track");
+    assert.equal(created.body.data?.ticket?.isSlaBreached, false);
     const ticketId = created.body.data?.ticket?.id;
     assert.ok(ticketId);
 
@@ -548,6 +674,30 @@ describe("/api/v1/tickets tenant management", () => {
     assert.equal(fetched.status, 200);
     assert.equal(fetched.body.data?.ticket?.id, ticketId);
     assert.equal(fetched.body.data?.ticket?.subject, "Initial ticket");
+  });
+
+  it("rejects invalid ticket status transitions and invalid workflow changes", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Workflow validation ticket",
+    );
+
+    const resolved = await request(`/api/v1/tickets/${ticketId}/status`, {
+      method: "PATCH",
+      token: adminAToken,
+      body: { status: "resolved" },
+    });
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.body.data?.ticket?.status, "resolved");
+
+    const invalidReopen = await request(`/api/v1/tickets/${ticketId}/status`, {
+      method: "PATCH",
+      token: adminAToken,
+      body: { status: "in_progress" },
+    });
+    assert.equal(invalidReopen.status, 409);
+    assert.equal(invalidReopen.body.error?.code, "INVALID_STATUS_TRANSITION");
   });
 
   it("rejects invalid ticket data, malformed IDs, and invalid customers", async () => {
@@ -754,5 +904,271 @@ describe("/api/v1/tickets tenant management", () => {
         (ticket) => ticket.organizationId === organizationAId,
       ),
     );
+  });
+
+  it("creates, paginates, and scopes public replies and internal notes", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Ticket comments",
+    );
+
+    const unauthenticated = await request(
+      `/api/v1/tickets/${ticketId}/comments`,
+      { method: "POST", body: { body: "Unauthenticated" } },
+    );
+    assert.equal(unauthenticated.status, 401);
+
+    const malformedTicketId = await request(
+      "/api/v1/tickets/not-a-uuid/comments",
+      { token: agentAToken },
+    );
+    assert.equal(malformedTicketId.status, 400);
+
+    const publicReply = await request(
+      `/api/v1/tickets/${ticketId}/comments`,
+      {
+        method: "POST",
+        token: agentAToken,
+        body: { body: "Customer-visible reply" },
+      },
+    );
+    assert.equal(publicReply.status, 201);
+    assert.equal(
+      publicReply.body.data?.comment?.authorId,
+      agentAId,
+    );
+    assert.equal(publicReply.body.data?.comment?.isInternal, false);
+    assert.ok(publicReply.body.data?.comment?.createdAt);
+
+    const internalNote = await request(
+      `/api/v1/tickets/${ticketId}/comments`,
+      {
+        method: "POST",
+        token: adminAToken,
+        body: { body: "Staff-only investigation note", isInternal: true },
+      },
+    );
+    assert.equal(internalNote.status, 201);
+    assert.equal(internalNote.body.data?.comment?.authorId, adminAId);
+    assert.equal(internalNote.body.data?.comment?.isInternal, true);
+
+    const invalidComment = await request(
+      `/api/v1/tickets/${ticketId}/comments`,
+      {
+        method: "POST",
+        token: agentAToken,
+        body: { body: "   ", organizationId: organizationBId },
+      },
+    );
+    assert.equal(invalidComment.status, 400);
+
+    const paginated = await request(
+      `/api/v1/tickets/${ticketId}/comments?page=1&limit=1`,
+      { token: agentAToken },
+    );
+    assert.equal(paginated.status, 200);
+    assert.equal(paginated.body.data?.total, 2);
+    assert.equal(paginated.body.data?.comments?.length, 1);
+
+    const allStaffComments = await request(
+      `/api/v1/tickets/${ticketId}/comments?page=1&limit=100`,
+      { token: agentAToken },
+    );
+    const comments = allStaffComments.body.data?.comments ?? [];
+    assert.equal(comments.length, 2);
+    assert.ok(
+      comments[0].createdAt <= comments[1].createdAt,
+      "comments are returned chronologically",
+    );
+    assert.deepEqual(
+      new Set(comments.map((comment) => comment.isInternal)),
+      new Set([false, true]),
+    );
+
+    const publicAudienceComments = await ticketCommentService.list(
+      organizationAId,
+      ticketId,
+      "customer",
+      { page: 1, limit: 100 },
+    );
+    assert.equal(publicAudienceComments.total, 1);
+    assert.equal(publicAudienceComments.items[0]?.isInternal, false);
+
+    await assert.rejects(
+      ticketCommentService.create(
+        organizationAId,
+        ticketId,
+        customerAId,
+        "customer",
+        { body: "Not allowed", isInternal: true },
+      ),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "INSUFFICIENT_PERMISSIONS",
+    );
+
+    const missingTicket = await request(
+      `/api/v1/tickets/${randomUUID()}/comments`,
+      { token: agentAToken },
+    );
+    assert.equal(missingTicket.status, 404);
+
+    const foreignTicketId = await createTicket(
+      adminBToken,
+      customerBId,
+      "Foreign comments",
+    );
+    const crossTenant = await request(
+      `/api/v1/tickets/${foreignTicketId}/comments`,
+      { token: agentAToken },
+    );
+    assert.equal(crossTenant.status, 404);
+  });
+
+  it("validates, stores, and serves tenant-scoped ticket attachments", async () => {
+    const ticketId = await createTicket(
+      adminAToken,
+      customerAId,
+      "Ticket attachments",
+    );
+    const pdf = Buffer.from("%PDF-1.7\nSupport attachment");
+
+    const unauthenticated = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      undefined,
+      "support.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(unauthenticated.status, 401);
+
+    const malformedTicketId = await requestMultipart(
+      "/api/v1/tickets/not-a-uuid/attachments",
+      agentAToken,
+      "support.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(malformedTicketId.status, 400);
+
+    const invalidTicket = await requestMultipart(
+      `/api/v1/tickets/${randomUUID()}/attachments`,
+      adminAToken,
+      "support.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(invalidTicket.status, 404);
+
+    const foreignTicketId = await createTicket(
+      adminBToken,
+      customerBId,
+      "Foreign attachment access",
+    );
+    const crossTenantUpload = await requestMultipart(
+      `/api/v1/tickets/${foreignTicketId}/attachments`,
+      agentAToken,
+      "support.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(crossTenantUpload.status, 404);
+
+    const unsupportedType = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      agentAToken,
+      "script.txt",
+      "text/plain",
+      Buffer.from("not an allowed upload"),
+    );
+    assert.equal(unsupportedType.status, 400);
+
+    const spoofedType = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      agentAToken,
+      "image.jpg",
+      "image/jpeg",
+      pdf,
+    );
+    assert.equal(spoofedType.status, 400);
+
+    const invalidFilename = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      agentAToken,
+      "../outside.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(invalidFilename.status, 400);
+
+    const oversized = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      agentAToken,
+      "large.pdf",
+      "application/pdf",
+      Buffer.concat([pdf, Buffer.alloc(10 * 1024 * 1024)]),
+    );
+    assert.equal(oversized.status, 413);
+
+    const uploaded = await requestMultipart(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      agentAToken,
+      "support.pdf",
+      "application/pdf",
+      pdf,
+    );
+    assert.equal(uploaded.status, 201);
+    const attachment = uploaded.body.data?.attachment;
+    assert.ok(attachment);
+    assert.equal(attachment.ticketId, ticketId);
+    assert.equal(attachment.uploaderId, agentAId);
+    assert.equal(attachment.originalFilename, "support.pdf");
+    assert.equal(attachment.contentType, "application/pdf");
+    assert.equal(attachment.sizeBytes, pdf.length);
+    assert.equal("storageKey" in attachment, false);
+
+    const listed = await request(
+      `/api/v1/tickets/${ticketId}/attachments`,
+      { token: agentAToken },
+    );
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.data?.total, 1);
+    assert.equal(listed.body.data?.attachments?.[0]?.id, attachment.id);
+
+    const downloadPath = `/api/v1/tickets/${ticketId}/attachments/${attachment.id}/download`;
+    const downloaded = await requestDownload(downloadPath, agentAToken);
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.contentType, "application/pdf");
+    assert.deepEqual(downloaded.body, pdf);
+
+    const crossTenantDownload = await requestDownload(
+      `/api/v1/tickets/${foreignTicketId}/attachments/${attachment.id}/download`,
+      adminBToken,
+    );
+    assert.equal(crossTenantDownload.status, 404);
+
+    const forbiddenDelete = await request(
+      `/api/v1/tickets/${ticketId}/attachments/${attachment.id}`,
+      { method: "DELETE", token: agentAToken },
+    );
+    assert.equal(forbiddenDelete.status, 403);
+
+    const crossTenantDelete = await request(
+      `/api/v1/tickets/${foreignTicketId}/attachments/${attachment.id}`,
+      { method: "DELETE", token: adminBToken },
+    );
+    assert.equal(crossTenantDelete.status, 404);
+
+    const deleted = await request(
+      `/api/v1/tickets/${ticketId}/attachments/${attachment.id}`,
+      { method: "DELETE", token: adminAToken },
+    );
+    assert.equal(deleted.status, 204);
+
+    const missingAfterDelete = await requestDownload(downloadPath, agentAToken);
+    assert.equal(missingAfterDelete.status, 404);
   });
 });
