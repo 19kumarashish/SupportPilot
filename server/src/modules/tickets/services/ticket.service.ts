@@ -40,6 +40,62 @@ const assigneeNotAgent = (): AppError =>
     "Tickets can only be assigned to agents",
   );
 
+const invalidTicketStatusTransition = (): AppError =>
+  new AppError(
+    409,
+    "INVALID_STATUS_TRANSITION",
+    "Ticket status transition is not allowed",
+  );
+
+const slaWindows = {
+  low: { responseHours: 24, resolutionHours: 72 },
+  medium: { responseHours: 8, resolutionHours: 24 },
+  high: { responseHours: 2, resolutionHours: 8 },
+  urgent: { responseHours: 0.5, resolutionHours: 2 },
+} as const;
+
+const getDeadline = (createdAt: Date | string, hours: number): Date => {
+  const baseTime = createdAt instanceof Date ? createdAt : new Date(createdAt);
+
+  return new Date(baseTime.getTime() + hours * 60 * 60 * 1000);
+};
+
+type TicketForResponse = Pick<
+  TicketResponse,
+  "id" | "organizationId" | "customerId" | "assignedTo" | "subject" | "description" | "status" | "priority" | "createdAt" | "updatedAt"
+>;
+
+const toTicketSlaStatus = (
+  createdAt: Date | string,
+  priority: TicketForResponse["priority"],
+  status: TicketForResponse["status"],
+): Pick<TicketResponse, "slaDeadline" | "responseDeadline" | "slaStatus" | "isSlaBreached"> => {
+  const now = new Date();
+  const windows = slaWindows[priority];
+  const responseDeadline = getDeadline(createdAt, windows.responseHours);
+  const slaDeadline = getDeadline(createdAt, windows.resolutionHours);
+
+  if (status === "resolved" || status === "closed") {
+    return {
+      slaDeadline: slaDeadline.toISOString(),
+      responseDeadline: responseDeadline.toISOString(),
+      slaStatus: "completed",
+      isSlaBreached: false,
+    };
+  }
+
+  const withinRiskWindow =
+    now >= new Date(slaDeadline.getTime() - windows.resolutionHours * 60 * 60 * 1000 * 0.25);
+  const breached = now > slaDeadline;
+
+  return {
+    slaDeadline: slaDeadline.toISOString(),
+    responseDeadline: responseDeadline.toISOString(),
+    slaStatus: breached ? "breached" : withinRiskWindow ? "at_risk" : "on_track",
+    isSlaBreached: breached,
+  };
+};
+
 const validateTicketCustomer = async (
   organizationId: string,
   customerId: string,
@@ -58,7 +114,30 @@ const validateTicketCustomer = async (
   }
 };
 
-const toTicketResponse = (ticket: TicketResponse): TicketResponse => ({
+const validateTicketStatusTransition = (
+  currentStatus: TicketResponse["status"],
+  nextStatus: TicketResponse["status"],
+): void => {
+  const allowedTransitions: Record<
+    TicketResponse["status"],
+    TicketResponse["status"][]
+  > = {
+    open: ["open", "in_progress", "resolved", "closed"],
+    in_progress: ["in_progress", "resolved", "closed"],
+    resolved: ["resolved", "closed"],
+    closed: ["closed", "open", "in_progress"],
+  };
+
+  if (currentStatus === nextStatus) {
+    return;
+  }
+
+  if (!allowedTransitions[currentStatus]?.includes(nextStatus)) {
+    throw invalidTicketStatusTransition();
+  }
+};
+
+const toTicketResponse = (ticket: TicketForResponse): TicketResponse => ({
   id: ticket.id,
   organizationId: ticket.organizationId,
   customerId: ticket.customerId,
@@ -69,6 +148,7 @@ const toTicketResponse = (ticket: TicketResponse): TicketResponse => ({
   priority: ticket.priority,
   createdAt: ticket.createdAt,
   updatedAt: ticket.updatedAt,
+  ...toTicketSlaStatus(ticket.createdAt, ticket.priority, ticket.status),
 });
 
 export const ticketService = {
@@ -161,6 +241,17 @@ export const ticketService = {
     ticketId: string,
     input: TicketStatusInput,
   ): Promise<TicketResponse> {
+    const currentTicket = await ticketRepository.findByIdInOrganization(
+      organizationId,
+      ticketId,
+    );
+
+    if (!currentTicket) {
+      throw ticketNotFound();
+    }
+
+    validateTicketStatusTransition(currentTicket.status, input.status);
+
     const ticket = await ticketRepository.updateStatusInOrganization(
       organizationId,
       ticketId,
