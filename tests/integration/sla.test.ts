@@ -4,11 +4,14 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
-import { eq, or } from "drizzle-orm";
 
 import { getTestDatabaseUrl } from "./test-database-url.js";
 
 const serverRequire = createRequire(resolve(process.cwd(), "package.json"));
+const { eq, or } = serverRequire("drizzle-orm") as {
+  eq: typeof import("drizzle-orm").eq;
+  or: typeof import("drizzle-orm").or;
+};
 const dotenv = serverRequire("dotenv") as {
   config(options: { path: string }): unknown;
 };

@@ -10,7 +10,7 @@
     "worker:dev": "tsx watch src/workers/index.ts",
     "worker:start": "node dist/workers/index.js",
     "type-check": "tsc --noEmit",
-    "test:unit": "tsx --test ../tests/integration/test-database-url.test.ts && tsx --test src/modules/tickets/tickets.test.ts src/modules/sla/sla.test.ts src/modules/teams/teams.test.ts src/workers/workers.test.ts",
+    "test:unit": "NODE_ENV=test DATABASE_URL=postgresql://localhost/supportpilot_unit_test JWT_ACCESS_SECRET=unit-test-access-secret-0123456789012345 JWT_REFRESH_SECRET=unit-test-refresh-secret-0123456789012345 tsx --test ../tests/integration/test-database-url.test.ts && NODE_ENV=test DATABASE_URL=postgresql://localhost/supportpilot_unit_test JWT_ACCESS_SECRET=unit-test-access-secret-0123456789012345 JWT_REFRESH_SECRET=unit-test-refresh-secret-0123456789012345 tsx --test src/modules/tickets/tickets.test.ts src/modules/sla/sla.test.ts src/modules/teams/teams.test.ts src/workers/workers.test.ts",
     "test:integration": "tsx --test ../tests/integration/organizations.test.ts && tsx --test ../tests/integration/organization-signup.test.ts && tsx --test ../tests/integration/users.test.ts && tsx --test ../tests/integration/customers.test.ts && tsx --test ../tests/integration/tickets.test.ts && tsx --test ../tests/integration/sla.test.ts && tsx --test ../tests/integration/teams.test.ts && tsx --test src/modules/customers/customers.test.ts",
     "lint": "node ../client/node_modules/eslint/bin/eslint.js --config eslint.config.mjs src",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
