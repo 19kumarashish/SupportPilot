@@ -6,6 +6,9 @@ import { organizationRouter } from "../modules/organizations/organization.routes
 import { userRouter } from "../modules/users/user.routes.js";
 import { customerRouter } from "../modules/customers/customer.routes.js";
 import { ticketRouter } from "../modules/tickets/ticket.routes.js";
+import { customerTicketRouter } from "../modules/tickets/customer-ticket.routes.js";
+import { slaRouter } from "../modules/sla/sla.routes.js";
+import { teamRouter } from "../modules/teams/team.routes.js";
 
 export const apiRouter: Router = Router();
 
@@ -15,3 +18,6 @@ apiRouter.use("/organizations", organizationRouter);
 apiRouter.use("/users", userRouter);
 apiRouter.use("/customers", customerRouter);
 apiRouter.use("/tickets", ticketRouter);
+apiRouter.use("/customer/tickets", customerTicketRouter);
+apiRouter.use("/sla", slaRouter);
+apiRouter.use("/teams", teamRouter);

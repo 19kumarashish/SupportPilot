@@ -11,6 +11,8 @@ import {
 import { customers } from "./customers.js";
 import { organizations } from "../../infrastructure/database/schema/organizations.js";
 import { users } from "../../infrastructure/database/schema/users.js";
+import { ticketCategories } from "./ticket-categories.js";
+import { teams } from "./teams.js";
 
 export const ticketStatuses = [
   "open",
@@ -41,9 +43,15 @@ export const tickets = pgTable(
 
     customerId: uuid("customer_id")
       .notNull()
-      .references(() => customers.id, { onDelete: "cascade" }),
+      .references(() => customers.id, { onDelete: "restrict" }),
 
     assignedTo: uuid("assigned_to").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    assignedTeamId: uuid("assigned_team_id").references(() => teams.id, {
+      onDelete: "set null",
+    }),
+    categoryId: uuid("category_id").references(() => ticketCategories.id, {
       onDelete: "set null",
     }),
 
@@ -54,6 +62,16 @@ export const tickets = pgTable(
     status: ticketStatusEnum("status").notNull().default("open"),
 
     priority: ticketPriorityEnum("priority").notNull().default("medium"),
+    firstResponseDeadlineAt: timestamp("first_response_deadline_at", {
+      withTimezone: true,
+    }),
+    resolutionDeadlineAt: timestamp("resolution_deadline_at", {
+      withTimezone: true,
+    }),
+    firstRespondedAt: timestamp("first_responded_at", { withTimezone: true }),
+    slaBreachedAt: timestamp("sla_breached_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", {
       withTimezone: true,
@@ -88,6 +106,16 @@ export const tickets = pgTable(
     index("tickets_organization_assigned_to_idx").on(
       table.organizationId,
       table.assignedTo,
+    ),
+    index("tickets_organization_assigned_team_idx").on(
+      table.organizationId,
+      table.assignedTeamId,
+    ),
+    index("tickets_sla_breach_scan_idx").on(
+      table.organizationId,
+      table.status,
+      table.slaBreachedAt,
+      table.resolutionDeadlineAt,
     ),
   ],
 );

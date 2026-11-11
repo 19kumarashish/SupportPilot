@@ -9,10 +9,12 @@ import {
   updateUser,
   updateUserStatus,
 } from "./user.controller.js";
+import { invitationAdminRouter } from "./invitations/invitation.routes.js";
 
 export const userRouter: Router = Router();
 
 userRouter.use(requireAuth, requireRole("admin"));
+userRouter.use("/invitations", invitationAdminRouter);
 
 userRouter.get("/", listUsers);
 userRouter.get("/:id", getUser);

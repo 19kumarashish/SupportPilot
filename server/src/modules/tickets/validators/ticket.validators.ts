@@ -19,6 +19,15 @@ export const listTicketsQuerySchema = z
     status: z.enum(ticketStatuses).optional(),
     priority: z.enum(ticketPriorities).optional(),
     customerId: z.uuid().optional(),
+    categoryId: z.uuid().optional(),
+    assignedTo: z.union([z.uuid(), z.literal("unassigned")]).optional(),
+    assignedTeamId: z.uuid().optional(),
+    tagId: z.uuid().optional(),
+    search: z.string().trim().max(200).optional(),
+    includeArchived: z.enum(["true", "false"]).transform((value) => value === "true").default(false),
+    includeDeleted: z.enum(["true", "false"]).transform((value) => value === "true").default(false),
+    sortBy: z.enum(["createdAt", "updatedAt", "subject", "priority", "status"]).default("createdAt"),
+    sortDir: z.enum(["asc", "desc"]).default("desc"),
   })
   .strict();
 
@@ -33,6 +42,9 @@ export const createTicketSchema = z
     description: descriptionSchema,
     status: z.enum(ticketStatuses).optional(),
     priority: z.enum(ticketPriorities).optional(),
+    categoryId: z.union([z.uuid(), z.null()]).optional(),
+    assignedTeamId: z.union([z.uuid(), z.null()]).optional(),
+    tagIds: z.array(z.uuid()).max(20).optional(),
   })
   .strict();
 
@@ -42,6 +54,8 @@ export const updateTicketSchema = z
     subject: subjectSchema.optional(),
     description: descriptionSchema.optional(),
     priority: z.enum(ticketPriorities).optional(),
+    categoryId: z.union([z.uuid(), z.null()]).optional(),
+    assignedTeamId: z.union([z.uuid(), z.null()]).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -59,3 +73,19 @@ export const assignTicketSchema = z
     assignedTo: z.union([z.uuid(), z.null()]),
   })
   .strict();
+
+export const archiveTicketSchema = z.object({ archived: z.boolean() }).strict();
+
+export const deleteTicketSchema = z.object({ delete: z.boolean().default(true) }).strict();
+
+export const bulkTicketActionSchema = z.object({
+  ticketIds: z.array(z.uuid()).min(1).max(100),
+  action: z.enum(["assign", "unassign", "status", "priority", "archive", "restore", "delete"]),
+  assignedTo: z.union([z.uuid(), z.null()]).optional(),
+  status: z.enum(ticketStatuses).optional(),
+  priority: z.enum(ticketPriorities).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.action === "assign" && !value.assignedTo) context.addIssue({ code: "custom", message: "assignedTo is required" });
+  if (value.action === "status" && !value.status) context.addIssue({ code: "custom", message: "status is required" });
+  if (value.action === "priority" && !value.priority) context.addIssue({ code: "custom", message: "priority is required" });
+});

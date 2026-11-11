@@ -4,6 +4,10 @@
   "private": true,
   "description": "Production-grade multi-tenant AI customer support SaaS",
   "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": "24.x",
+    "pnpm": "11.21.0"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter client --filter server dev",
     "dev:client": "pnpm --filter client dev",

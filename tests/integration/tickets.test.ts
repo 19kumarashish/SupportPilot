@@ -426,6 +426,10 @@ describe("/api/v1/tickets tenant management", () => {
 
       if (migrationsComplete) {
         await pool.query(
+          "DELETE FROM tickets WHERE organization_id = ANY($1::uuid[])",
+          [[organizationAId, organizationBId]],
+        );
+        await pool.query(
           "DELETE FROM organizations WHERE id = ANY($1::uuid[])",
           [[organizationAId, organizationBId]],
         );

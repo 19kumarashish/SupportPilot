@@ -1,5 +1,7 @@
 import { AppError } from "../../../shared/errors/app-error.js";
 import { ticketRepository } from "../repositories/ticket.repository.js";
+import { slaService } from "../../sla/services/sla.service.js";
+import { calculateSlaDeadlines, defaultSlaWindows } from "../../sla/services/sla-calculator.js";
 import type {
   AssignTicketInput,
   CreateTicketInput,
@@ -9,6 +11,7 @@ import type {
   TicketStatusInput,
   UpdateTicketInput,
 } from "../types/ticket.types.js";
+import { teamRepository } from "../../teams/repositories/team.repository.js";
 
 const ticketNotFound = (): AppError =>
   new AppError(404, "TICKET_NOT_FOUND", "Ticket not found");
@@ -47,35 +50,33 @@ const invalidTicketStatusTransition = (): AppError =>
     "Ticket status transition is not allowed",
   );
 
-const slaWindows = {
-  low: { responseHours: 24, resolutionHours: 72 },
-  medium: { responseHours: 8, resolutionHours: 24 },
-  high: { responseHours: 2, resolutionHours: 8 },
-  urgent: { responseHours: 0.5, resolutionHours: 2 },
-} as const;
-
-const getDeadline = (createdAt: Date | string, hours: number): Date => {
-  const baseTime = createdAt instanceof Date ? createdAt : new Date(createdAt);
-
-  return new Date(baseTime.getTime() + hours * 60 * 60 * 1000);
-};
-
 type TicketForResponse = Pick<
   TicketResponse,
   "id" | "organizationId" | "customerId" | "assignedTo" | "subject" | "description" | "status" | "priority" | "createdAt" | "updatedAt"
->;
+> & {
+  assignedTeamId?: string | null;
+  firstResponseDeadlineAt?: Date | null;
+  resolutionDeadlineAt?: Date | null;
+  firstRespondedAt?: Date | null;
+  slaBreachedAt?: Date | null;
+};
 
 const toTicketSlaStatus = (
-  createdAt: Date | string,
-  priority: TicketForResponse["priority"],
-  status: TicketForResponse["status"],
+  ticket: TicketForResponse,
 ): Pick<TicketResponse, "slaDeadline" | "responseDeadline" | "slaStatus" | "isSlaBreached"> => {
   const now = new Date();
-  const windows = slaWindows[priority];
-  const responseDeadline = getDeadline(createdAt, windows.responseHours);
-  const slaDeadline = getDeadline(createdAt, windows.resolutionHours);
+  const fallback = calculateSlaDeadlines(
+    ticket.createdAt instanceof Date ? ticket.createdAt : new Date(ticket.createdAt),
+    ticket.priority,
+    {
+      firstResponseMinutes: defaultSlaWindows[ticket.priority].firstResponseMinutes,
+      resolutionMinutes: defaultSlaWindows[ticket.priority].resolutionMinutes,
+    },
+  );
+  const responseDeadline = ticket.firstResponseDeadlineAt ?? fallback.firstResponseDeadlineAt;
+  const slaDeadline = ticket.resolutionDeadlineAt ?? fallback.resolutionDeadlineAt;
 
-  if (status === "resolved" || status === "closed") {
+  if (ticket.status === "resolved" || ticket.status === "closed") {
     return {
       slaDeadline: slaDeadline.toISOString(),
       responseDeadline: responseDeadline.toISOString(),
@@ -84,9 +85,14 @@ const toTicketSlaStatus = (
     };
   }
 
-  const withinRiskWindow =
-    now >= new Date(slaDeadline.getTime() - windows.resolutionHours * 60 * 60 * 1000 * 0.25);
-  const breached = now > slaDeadline;
+  const riskWindow = Math.max(
+    1,
+    slaDeadline.getTime() - (slaDeadline.getTime() - ticket.createdAt.getTime()) * 0.25,
+  );
+  const withinRiskWindow = now.getTime() >= riskWindow;
+  const breached = ticket.slaBreachedAt !== null && ticket.slaBreachedAt !== undefined
+    ? true
+    : now > slaDeadline;
 
   return {
     slaDeadline: slaDeadline.toISOString(),
@@ -142,13 +148,26 @@ const toTicketResponse = (ticket: TicketForResponse): TicketResponse => ({
   organizationId: ticket.organizationId,
   customerId: ticket.customerId,
   assignedTo: ticket.assignedTo,
+  ...(ticket.assignedTeamId !== undefined && { assignedTeamId: ticket.assignedTeamId }),
   subject: ticket.subject,
   description: ticket.description,
   status: ticket.status,
   priority: ticket.priority,
   createdAt: ticket.createdAt,
   updatedAt: ticket.updatedAt,
-  ...toTicketSlaStatus(ticket.createdAt, ticket.priority, ticket.status),
+  ...(ticket.firstResponseDeadlineAt && {
+    firstResponseDeadlineAt: ticket.firstResponseDeadlineAt.toISOString(),
+  }),
+  ...(ticket.resolutionDeadlineAt && {
+    resolutionDeadlineAt: ticket.resolutionDeadlineAt.toISOString(),
+  }),
+  ...(ticket.firstRespondedAt && {
+    firstRespondedAt: ticket.firstRespondedAt.toISOString(),
+  }),
+  ...(ticket.slaBreachedAt && {
+    slaBreachedAt: ticket.slaBreachedAt.toISOString(),
+  }),
+  ...toTicketSlaStatus(ticket),
 });
 
 export const ticketService = {
@@ -191,14 +210,29 @@ export const ticketService = {
     input: CreateTicketInput,
   ): Promise<TicketResponse> {
     await validateTicketCustomer(organizationId, input.customerId);
+    if (input.assignedTeamId && !await teamRepository.findInOrganization(organizationId, input.assignedTeamId)) {
+      throw new AppError(404, "TEAM_NOT_FOUND", "Assigned team not found");
+    }
 
-    const ticket = await ticketRepository.create(organizationId, input);
+    const priority = input.priority ?? "medium";
+    const deadlines = await slaService.calculateDeadlines(
+      organizationId,
+      priority,
+      new Date(),
+    );
+    const ticket = await ticketRepository.create(organizationId, input, deadlines);
 
     if (!ticket) {
       throw new AppError(
-        500,
-        "TICKET_CREATION_FAILED",
-        "Failed to create ticket",
+        input.categoryId || input.tagIds?.length
+          ? 400
+          : 500,
+        input.categoryId || input.tagIds?.length
+          ? "INVALID_CATEGORY_OR_TAG"
+          : "TICKET_CREATION_FAILED",
+        input.categoryId || input.tagIds?.length
+          ? "Category or tags are invalid for this organization"
+          : "Failed to create ticket",
       );
     }
 
@@ -222,11 +256,25 @@ export const ticketService = {
     if (input.customerId !== undefined) {
       await validateTicketCustomer(organizationId, input.customerId);
     }
+    if (input.assignedTeamId && !await teamRepository.findInOrganization(organizationId, input.assignedTeamId)) {
+      throw new AppError(404, "TEAM_NOT_FOUND", "Assigned team not found");
+    }
 
+    const updatedPriority = input.priority;
+    const deadlines = updatedPriority !== undefined
+      ? await slaService.calculateDeadlines(
+        organizationId,
+        updatedPriority,
+        existingTicket.createdAt instanceof Date
+          ? existingTicket.createdAt
+          : new Date(existingTicket.createdAt),
+      )
+      : undefined;
     const ticket = await ticketRepository.updateInOrganization(
       organizationId,
       ticketId,
       input,
+      deadlines,
     );
 
     if (!ticket) {
@@ -240,6 +288,7 @@ export const ticketService = {
     organizationId: string,
     ticketId: string,
     input: TicketStatusInput,
+    actorUserId?: string,
   ): Promise<TicketResponse> {
     const currentTicket = await ticketRepository.findByIdInOrganization(
       organizationId,
@@ -256,6 +305,7 @@ export const ticketService = {
       organizationId,
       ticketId,
       input.status,
+      actorUserId,
     );
 
     if (!ticket) {
@@ -269,6 +319,7 @@ export const ticketService = {
     organizationId: string,
     ticketId: string,
     input: AssignTicketInput,
+    actorUserId?: string,
   ): Promise<TicketResponse> {
     const existingTicket = await ticketRepository.findByIdInOrganization(
       organizationId,
@@ -284,6 +335,7 @@ export const ticketService = {
         organizationId,
         ticketId,
         null,
+        actorUserId,
       );
 
       if (!ticket) {
@@ -314,6 +366,7 @@ export const ticketService = {
       organizationId,
       ticketId,
       assignee.id,
+      actorUserId,
     );
 
     if (!ticket) {

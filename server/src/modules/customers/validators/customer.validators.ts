@@ -53,6 +53,8 @@ export const updateCustomerSchema = z
     email: emailSchema.optional(),
     phone: phoneSchema.optional(),
     company: companySchema.optional(),
+    portalEnabled: z.boolean().optional(),
+    portalPassword: z.string().min(12).max(128).optional(),
   })
   .strict()
   .refine(

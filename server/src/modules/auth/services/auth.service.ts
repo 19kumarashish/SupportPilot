@@ -11,12 +11,42 @@ import {
 import { hashToken } from "../../../shared/security/token.js";
 import { refreshSessionRepository } from "../repositories/refresh-session.repository.js";
 import { userRepository } from "../repositories/user.repository.js";
+import { organizationRepository } from "../../organizations/repositories/organization.repository.js";
 import type {
   LoginInput,
   RegisterInput,
 } from "../validators/auth.validators.js";
 
 export const authService = {
+  async issueTokensForUser(user: {
+    id: string;
+    organizationId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: "admin" | "agent";
+    isActive: boolean;
+  }) {
+    const accessToken = await generateAccessToken({ userId: user.id, organizationId: user.organizationId, role: user.role, type: "access" });
+    const refreshToken = await generateRefreshToken({ userId: user.id, organizationId: user.organizationId, type: "refresh" });
+    await refreshSessionRepository.create({
+      userId: user.id,
+      tokenHash: hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+    return {
+      user: {
+        id: user.id,
+        organizationId: user.organizationId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        isActive: user.isActive,
+      },
+      tokens: { accessToken, refreshToken },
+    };
+  },
   async registerUser(input: RegisterInput) {
     const existingUser = await userRepository.findByEmail(
       input.organizationId,
@@ -63,8 +93,21 @@ export const authService = {
   },
 
   async loginUser(input: LoginInput) {
+    const organizationId =
+      "organizationId" in input
+        ? input.organizationId
+        : await organizationRepository.findIdBySlug(input.organizationSlug);
+
+    if (!organizationId) {
+      throw new AppError(
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password",
+      );
+    }
+
     const user = await userRepository.findByEmail(
-      input.organizationId,
+      organizationId,
       input.email,
     );
 
@@ -162,7 +205,7 @@ export const authService = {
 
     const refreshTokenHash = hashToken(refreshToken);
     const refreshSession =
-      await refreshSessionRepository.findActiveByTokenHash(
+      await refreshSessionRepository.consumeActiveByTokenHash(
         refreshTokenHash,
       );
 
@@ -207,8 +250,6 @@ export const authService = {
         "Invalid or expired refresh token",
       );
     }
-
-    await refreshSessionRepository.revokeById(refreshSession.id);
 
     const newAccessToken = await generateAccessToken({
       userId: user.id,

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { db } from "../../../infrastructure/database/index.js";
 import { users } from "../../../infrastructure/database/schema/users.js";
@@ -37,7 +37,7 @@ export const userRepository = {
       .where(
         and(
           eq(users.organizationId, organizationId),
-          eq(users.email, email),
+          sql`lower(${users.email}) = lower(${email})`,
         ),
       )
       .limit(1);

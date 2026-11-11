@@ -6,6 +6,7 @@ import type {
   listTicketsQuerySchema,
   ticketStatusSchema,
   updateTicketSchema,
+  bulkTicketActionSchema,
 } from "../validators/ticket.validators.js";
 
 export type Ticket = typeof tickets.$inferSelect;
@@ -29,6 +30,11 @@ export type TicketResponse = Pick<
   | "createdAt"
   | "updatedAt"
 > & {
+  assignedTeamId?: string | null;
+  firstResponseDeadlineAt?: string;
+  resolutionDeadlineAt?: string;
+  firstRespondedAt?: string;
+  slaBreachedAt?: string;
   slaDeadline?: string;
   responseDeadline?: string;
   slaStatus?: TicketSlaStatus;
@@ -50,6 +56,8 @@ export type AssignTicketInput = ReturnType<
 >;
 
 export type ListTicketsQuery = ReturnType<typeof listTicketsQuerySchema.parse>;
+
+export type BulkTicketActionInput = ReturnType<typeof bulkTicketActionSchema.parse>;
 
 export type PaginatedTicketResponse = {
   items: TicketResponse[];

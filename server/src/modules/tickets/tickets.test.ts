@@ -92,6 +92,10 @@ describe("ticket validators", () => {
         status: "in_progress",
         priority: "high",
         customerId,
+        includeArchived: false,
+        includeDeleted: false,
+        sortBy: "createdAt",
+        sortDir: "desc",
       },
     );
 
@@ -102,6 +106,30 @@ describe("ticket validators", () => {
     assert.equal(
       listTicketsQuerySchema.safeParse({ status: "pending" }).success,
       false,
+    );
+    const categoryId = "dd3fefad-f94e-4b5d-b3d7-4b19f98c8e91";
+    const tagId = "f65e77fd-f1af-4f0d-bc5f-54f70d5ea0c7";
+    assert.deepEqual(
+      listTicketsQuerySchema.parse({
+        search: " password ",
+        categoryId,
+        tagId,
+        assignedTo: "unassigned",
+        sortBy: "updatedAt",
+        sortDir: "asc",
+      }),
+      {
+        page: 1,
+        limit: 20,
+        search: "password",
+        categoryId,
+        tagId,
+        assignedTo: "unassigned",
+        includeArchived: false,
+        includeDeleted: false,
+        sortBy: "updatedAt",
+        sortDir: "asc",
+      },
     );
   });
 
@@ -291,6 +319,19 @@ describe("ticket service customer and tenant checks", () => {
   });
 
   it("changes status through the organization-scoped repository operation", async (context) => {
+    context.mock.method(
+      ticketRepository,
+      "findByIdInOrganization",
+      async (
+        requestedOrganizationId: string,
+        requestedTicketId: string,
+      ) => {
+        assert.equal(requestedOrganizationId, organizationId);
+        assert.equal(requestedTicketId, ticketFixture.id);
+        return ticketFixture;
+      },
+    );
+
     const updateStatus = context.mock.method(
       ticketRepository,
       "updateStatusInOrganization",

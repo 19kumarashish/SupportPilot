@@ -60,4 +60,30 @@ describe("getTestDatabaseUrl", () => {
       /must not override its connection target/u,
     );
   });
+
+  it("requires the dedicated database name when running in CI", () => {
+    const previousCi = process.env.CI;
+    process.env.CI = "true";
+
+    try {
+      assert.throws(
+        () =>
+          getTestDatabaseUrl(
+            undefined,
+            "postgresql://supportpilot@localhost:5432/supportpilot_test",
+          ),
+        /supportpilot_ci_test/u,
+      );
+      assert.throws(
+        () => getTestDatabaseUrl(undefined, undefined),
+        /TEST_DATABASE_URL is required/u,
+      );
+    } finally {
+      if (previousCi === undefined) {
+        delete process.env.CI;
+      } else {
+        process.env.CI = previousCi;
+      }
+    }
+  });
 });

@@ -1,7 +1,8 @@
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "../../../infrastructure/database/index.js";
 import { customers } from "../../../db/schema/customers.js";
+import { tickets } from "../../../db/schema/tickets.js";
 
 import type {
   CreateCustomerInput,
@@ -19,6 +20,7 @@ const customerSelect = {
   isActive: customers.isActive,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,
+  deletedAt: customers.deletedAt,
 };
 
 export async function listInOrganization(
@@ -31,7 +33,10 @@ export async function listInOrganization(
     db
       .select(customerSelect)
       .from(customers)
-      .where(eq(customers.organizationId, organizationId))
+      .where(and(
+        eq(customers.organizationId, organizationId),
+        isNull(customers.deletedAt),
+      ))
       .orderBy(asc(customers.createdAt))
       .limit(pagination.limit)
       .offset(offset),
@@ -39,7 +44,10 @@ export async function listInOrganization(
     db
       .select({ count: count() })
       .from(customers)
-      .where(eq(customers.organizationId, organizationId)),
+      .where(and(
+        eq(customers.organizationId, organizationId),
+        isNull(customers.deletedAt),
+      )),
   ]);
 
   const total = Number(totalResult[0]?.count ?? 0);
@@ -61,6 +69,7 @@ export async function findByIdInOrganization(
       and(
         eq(customers.id, customerId),
         eq(customers.organizationId, organizationId),
+        isNull(customers.deletedAt),
       ),
     )
     .limit(1);
@@ -78,11 +87,35 @@ export async function findByEmail(
     .where(
       and(
         eq(customers.organizationId, organizationId),
-        eq(customers.email, email),
+        sql`lower(${customers.email}) = lower(${email})`,
+        isNull(customers.deletedAt),
       ),
     )
     .limit(1);
 
+  return customer ?? null;
+}
+
+export async function findPortalByEmail(
+  organizationId: string,
+  email: string,
+) {
+  const [customer] = await db
+    .select({
+      id: customers.id,
+      organizationId: customers.organizationId,
+      email: customers.email,
+      isActive: customers.isActive,
+      portalEnabled: customers.portalEnabled,
+      portalPasswordHash: customers.portalPasswordHash,
+    })
+    .from(customers)
+    .where(and(
+      eq(customers.organizationId, organizationId),
+      sql`lower(${customers.email}) = lower(${email})`,
+      isNull(customers.deletedAt),
+    ))
+    .limit(1);
   return customer ?? null;
 }
 
@@ -108,12 +141,22 @@ export async function create(
 export async function updateInOrganization(
   organizationId: string,
   customerId: string,
-  input: UpdateCustomerInput,
+  input: UpdateCustomerInput & { portalPasswordHash?: string },
 ) {
+  const { portalPasswordHash } =
+    input;
+  const fields = {
+    ...(input.name !== undefined && { name: input.name }),
+    ...(input.email !== undefined && { email: input.email }),
+    ...(input.phone !== undefined && { phone: input.phone }),
+    ...(input.company !== undefined && { company: input.company }),
+    ...(input.portalEnabled !== undefined && { portalEnabled: input.portalEnabled }),
+  };
   const [customer] = await db
     .update(customers)
     .set({
-      ...input,
+      ...fields,
+      ...(portalPasswordHash !== undefined && { portalPasswordHash }),
       updatedAt: new Date(),
     })
     .where(
@@ -153,15 +196,28 @@ export async function deleteInOrganization(
   organizationId: string,
   customerId: string,
 ) {
+  const [ticket] = await db
+    .select({ id: tickets.id })
+    .from(tickets)
+    .where(and(
+      eq(tickets.organizationId, organizationId),
+      eq(tickets.customerId, customerId),
+      isNull(tickets.deletedAt),
+    ))
+    .limit(1);
+  if (ticket) return { blocked: true, customer: null } as const;
+
   const [customer] = await db
-    .delete(customers)
+    .update(customers)
+    .set({ deletedAt: new Date(), updatedAt: new Date(), isActive: false })
     .where(
       and(
         eq(customers.id, customerId),
         eq(customers.organizationId, organizationId),
+        isNull(customers.deletedAt),
       ),
     )
     .returning(customerSelect);
 
-  return customer ?? null;
+  return { blocked: false, customer: customer ?? null } as const;
 }

@@ -18,6 +18,10 @@ export const listTicketCommentsQuerySchema = z
   })
   .strict();
 
+export const updateTicketCommentSchema = z.object({
+  body: z.string().trim().min(1).max(10_000),
+}).strict();
+
 export type CreateTicketCommentInput = z.infer<
   typeof createTicketCommentSchema
 >;
