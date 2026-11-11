@@ -88,6 +88,12 @@ export function getTestDatabaseUrl(
   databaseUrl: string | undefined,
   configuredTestDatabaseUrl: string | undefined,
 ): string {
+  if (process.env.CI === "true" && !configuredTestDatabaseUrl?.trim()) {
+    throw new Error(
+      "TEST_DATABASE_URL is required and DATABASE_URL may not be used as a fallback in CI",
+    );
+  }
+
   const configuredDatabase = databaseUrl?.trim();
   const explicitTestDatabase = configuredTestDatabaseUrl?.trim();
 
@@ -103,6 +109,15 @@ export function getTestDatabaseUrl(
 
   if (explicitTestDatabase) {
     const test = parseDatabaseUrl(explicitTestDatabase, "TEST_DATABASE_URL");
+
+    if (
+      process.env.CI === "true" &&
+      test.identity.database !== "supportpilot_ci_test"
+    ) {
+      throw new Error(
+        "TEST_DATABASE_URL must use the supportpilot_ci_test database in CI",
+      );
+    }
 
     if (development && hasSameDatabase(development.identity, test.identity)) {
       throw new Error(

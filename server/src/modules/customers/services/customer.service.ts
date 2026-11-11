@@ -1,5 +1,6 @@
 import * as customerRepository from "../repositories/customer.repository.js";
 import { AppError } from "../../../shared/errors/app-error.js";
+import { hashPassword } from "../../../shared/security/password.js";
 
 import type {
   CreateCustomerInput,
@@ -119,11 +120,17 @@ export async function updateCustomer(
     }
   }
 
+  const portalPasswordHash = input.portalPassword
+    ? await hashPassword(input.portalPassword)
+    : undefined;
   const customer =
     await customerRepository.updateInOrganization(
       organizationId,
       customerId,
-      input,
+      {
+        ...input,
+        portalPasswordHash,
+      } as UpdateCustomerInput & { portalPasswordHash?: string },
     );
 
   if (!customer) {
@@ -156,15 +163,22 @@ export async function deleteCustomer(
   organizationId: string,
   customerId: string,
 ) {
-  const customer =
+  const result =
     await customerRepository.deleteInOrganization(
       organizationId,
       customerId,
     );
+  if (result.blocked) {
+    throw new AppError(
+      409,
+      "CUSTOMER_HAS_TICKETS",
+      "Customer cannot be deleted while ticket history exists",
+    );
+  }
 
-  if (!customer) {
+  if (!result.customer) {
       throw customerNotFound();
   }
 
-  return toCustomerResponse(customer);
+  return toCustomerResponse(result.customer);
 }

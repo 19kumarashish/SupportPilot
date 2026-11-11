@@ -27,6 +27,9 @@ export const customers = pgTable(
     company: varchar("company", { length: 200 }),
 
     isActive: boolean("is_active").notNull().default(true),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    portalPasswordHash: varchar("portal_password_hash", { length: 255 }),
+    portalEnabled: boolean("portal_enabled").notNull().default(false),
 
     createdAt: timestamp("created_at", {
       withTimezone: true,

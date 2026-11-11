@@ -49,6 +49,13 @@ export const ticketCommentService = {
       );
     }
 
+    if (!input.isInternal) {
+      await ticketRepository.markFirstRespondedInOrganization(
+        organizationId,
+        ticketId,
+      );
+    }
+
     return comment;
   },
 
@@ -79,5 +86,40 @@ export const ticketCommentService = {
       limit: query.limit,
       totalPages: Math.ceil(result.total / query.limit),
     };
+  },
+
+  async update(
+    organizationId: string,
+    ticketId: string,
+    commentId: string,
+    actorUserId: string,
+    actorRole: string,
+    body: string,
+  ) {
+    const comment = await ticketCommentRepository.findInOrganization(
+      organizationId, ticketId, commentId,
+    );
+    if (!comment) throw new AppError(404, "TICKET_COMMENT_NOT_FOUND", "Ticket comment not found");
+    if (comment.authorId !== actorUserId && actorRole !== "admin") {
+      throw new AppError(403, "INSUFFICIENT_PERMISSIONS", "Only the comment author or an administrator may edit this comment");
+    }
+    return ticketCommentRepository.update(commentId, organizationId, ticketId, actorUserId, body);
+  },
+
+  async delete(
+    organizationId: string,
+    ticketId: string,
+    commentId: string,
+    actorUserId: string,
+    actorRole: string,
+  ) {
+    const comment = await ticketCommentRepository.findInOrganization(
+      organizationId, ticketId, commentId,
+    );
+    if (!comment) throw new AppError(404, "TICKET_COMMENT_NOT_FOUND", "Ticket comment not found");
+    if (comment.authorId !== actorUserId && actorRole !== "admin") {
+      throw new AppError(403, "INSUFFICIENT_PERMISSIONS", "Only the comment author or an administrator may delete this comment");
+    }
+    return ticketCommentRepository.softDelete(commentId, organizationId, ticketId, actorUserId);
   },
 };

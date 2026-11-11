@@ -6,5 +6,6 @@ packages:
 allowBuilds:
   argon2: true
   esbuild: false
+  msgpackr-extract: true
   sharp: false
   unrs-resolver: false

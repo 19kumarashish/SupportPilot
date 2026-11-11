@@ -196,13 +196,27 @@ export const ticketAttachmentService = {
       throw attachmentNotFound();
     }
 
-    await localAttachmentStorage.delete(attachment.storageKey);
     const deleted = await ticketAttachmentRepository.delete(
       attachmentId,
       attachment.ticketId,
     );
     if (!deleted) {
       throw attachmentNotFound();
+    }
+
+    try {
+      await localAttachmentStorage.delete(attachment.storageKey);
+    } catch (storageError) {
+      await ticketAttachmentRepository.restore({
+        id: attachment.id,
+        ticketId: attachment.ticketId,
+        uploaderId: attachment.uploaderId,
+        originalFilename: attachment.originalFilename,
+        contentType: attachment.contentType,
+        sizeBytes: attachment.sizeBytes,
+        storageKey: attachment.storageKey,
+      });
+      throw storageError;
     }
   },
 };

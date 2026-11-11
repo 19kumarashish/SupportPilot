@@ -89,4 +89,13 @@ export const ticketAttachmentRepository = {
 
     return attachment ?? null;
   },
+
+  async restore(input: typeof ticketAttachments.$inferInsert) {
+    const [attachment] = await db
+      .insert(ticketAttachments)
+      .values(input)
+      .returning(attachmentSelect);
+
+    return attachment ?? null;
+  },
 };

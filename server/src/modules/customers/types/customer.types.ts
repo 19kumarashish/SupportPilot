@@ -27,6 +27,8 @@ export type UpdateCustomerInput = {
   email?: string | undefined;
   phone?: string | undefined;
   company?: string | undefined;
+  portalEnabled?: boolean | undefined;
+  portalPassword?: string | undefined;
 };
 
 export type CustomerStatusInput = {

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
+import { getTestDatabaseUrl } from "../../../../tests/integration/test-database-url.js";
 
 interface SafeCustomer {
   id: string;
@@ -56,6 +57,9 @@ const dotenv = serverRequire("dotenv") as {
 dotenv.config({ path: resolve(process.cwd(), "../.env") });
 dotenv.config({ path: resolve(process.cwd(), ".env") });
 
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
+  ? getTestDatabaseUrl(undefined, process.env.TEST_DATABASE_URL)
+  : getTestDatabaseUrl(process.env.DATABASE_URL, undefined);
 process.env.NODE_ENV = "test";
 process.env.JWT_ACCESS_SECRET = randomBytes(48).toString("base64url");
 process.env.JWT_REFRESH_SECRET = randomBytes(48).toString("base64url");

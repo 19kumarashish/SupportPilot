@@ -27,6 +27,12 @@ export interface RefreshTokenPayload extends JWTPayload {
   type: "refresh";
 }
 
+export interface CustomerAccessTokenPayload extends JWTPayload {
+  customerId: string;
+  organizationId: string;
+  type: "customer_access";
+}
+
 export async function generateAccessToken(
   payload: Omit<AccessTokenPayload, "iat" | "exp">,
 ): Promise<string> {
@@ -47,6 +53,16 @@ export async function generateRefreshToken(
     .sign(refreshSecret);
 }
 
+export async function generateCustomerAccessToken(
+  payload: Omit<CustomerAccessTokenPayload, "iat" | "exp">,
+): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(accessSecret);
+}
+
 export async function verifyAccessToken(
   token: string,
 ): Promise<AccessTokenPayload> {
@@ -65,4 +81,13 @@ export async function verifyRefreshToken(
   });
 
   return payload as RefreshTokenPayload;
+}
+
+export async function verifyCustomerAccessToken(
+  token: string,
+): Promise<CustomerAccessTokenPayload> {
+  const { payload } = await jwtVerify(token, accessSecret, {
+    algorithms: ["HS256"],
+  });
+  return payload as CustomerAccessTokenPayload;
 }

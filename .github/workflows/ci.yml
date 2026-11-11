@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - feature/project-setup
+      - feature/**
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript type-check
+        run: pnpm --filter server type-check
+      - name: ESLint
+        run: pnpm --filter server lint
+      - name: Production build
+        run: pnpm --filter server build
+      - name: Backend unit tests
+        run: pnpm --filter server test:unit
+        env:
+          CI: false
+
+  client:
+    name: Client checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript type-check
+        run: pnpm --filter client exec tsc --noEmit
+      - name: ESLint
+        run: pnpm --filter client lint
+      - name: Production build
+        run: pnpm --filter client build
+      - name: Client tests
+        run: pnpm --filter client test
+
+  integration:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: supportpilot_ci
+          POSTGRES_DB: supportpilot_ci_test
+          POSTGRES_PASSWORD: supportpilot_ci_password
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U supportpilot_ci -d supportpilot_ci_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: true
+      NODE_ENV: test
+      TEST_DATABASE_URL: postgresql://supportpilot_ci:supportpilot_ci_password@localhost:5432/supportpilot_ci_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify isolated test database
+        run: |
+          if [ "$TEST_DATABASE_URL" != "postgresql://supportpilot_ci:supportpilot_ci_password@localhost:5432/supportpilot_ci_test" ]; then
+            echo "Unexpected TEST_DATABASE_URL configuration" >&2
+            exit 1
+          fi
+          pnpm --filter server exec tsx -e '
+            import { getTestDatabaseUrl } from "../tests/integration/test-database-url.ts";
+            const url = getTestDatabaseUrl(process.env.DATABASE_URL, process.env.TEST_DATABASE_URL);
+            const parsed = new URL(url);
+            if (parsed.hostname !== "localhost" || parsed.pathname !== "/supportpilot_ci_test") {
+              throw new Error("TEST_DATABASE_URL did not resolve to the ephemeral CI database");
+            }
+            console.log("Verified isolated CI test database: supportpilot_ci_test");
+          '
+      - name: Apply Drizzle migrations
+        run: pnpm --filter server db:migrate
+        env:
+          DATABASE_URL: postgresql://supportpilot_ci:supportpilot_ci_password@localhost:5432/supportpilot_ci_test
+          TEST_DATABASE_URL: postgresql://supportpilot_ci:supportpilot_ci_password@localhost:5432/supportpilot_ci_test
+      - name: Integration tests
+        run: pnpm --filter server test:integration

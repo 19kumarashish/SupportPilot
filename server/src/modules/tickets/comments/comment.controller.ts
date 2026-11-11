@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { z } from "zod";
 
 import { AppError } from "../../../shared/errors/app-error.js";
 import { getTenantContext } from "../../../shared/tenant-context.js";
@@ -7,6 +8,7 @@ import {
   createTicketCommentSchema,
   listTicketCommentsQuerySchema,
   ticketCommentsParamsSchema,
+  updateTicketCommentSchema,
 } from "./comment.validators.js";
 
 const validationError = (): AppError =>
@@ -60,4 +62,27 @@ export const listTicketComments: RequestHandler = async (
       totalPages: result.totalPages,
     },
   });
+};
+
+export const updateTicketComment: RequestHandler = async (request, response) => {
+  const tenant = getTenantContext(request);
+  const params = z.object({ id: z.uuid(), commentId: z.uuid() }).strict().safeParse(request.params);
+  const body = updateTicketCommentSchema.safeParse(request.body);
+  if (!params.success || !body.success) throw validationError();
+  const comment = await ticketCommentService.update(
+    tenant.organizationId, params.data.id, params.data.commentId,
+    tenant.userId, tenant.role, body.data.body,
+  );
+  response.json({ success: true, data: { comment } });
+};
+
+export const deleteTicketComment: RequestHandler = async (request, response) => {
+  const tenant = getTenantContext(request);
+  const params = z.object({ id: z.uuid(), commentId: z.uuid() }).strict().safeParse(request.params);
+  if (!params.success) throw validationError();
+  const comment = await ticketCommentService.delete(
+    tenant.organizationId, params.data.id, params.data.commentId,
+    tenant.userId, tenant.role,
+  );
+  response.json({ success: true, data: { comment } });
 };

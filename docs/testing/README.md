@@ -20,4 +20,6 @@ The server integration tests use `TEST_DATABASE_URL` when set. Otherwise, they d
 
 The test suites apply migrations to the test database and create/delete only their own generated test records.
 
+In GitHub Actions, CI must provide `TEST_DATABASE_URL=postgresql://supportpilot_ci@localhost:5432/supportpilot_ci_test`. The test helper rejects missing CI test URLs, non-`supportpilot_ci_test` database names, and URLs that match `DATABASE_URL`.
+
 Ticket attachment integration tests use a unique temporary directory under `server/tmp` and remove it after the suite completes. Attachments are stored outside PostgreSQL in a private local directory; set `ATTACHMENT_STORAGE_PATH` to an absolute, writable persistent directory in deployment. Do not serve this directory as static content.

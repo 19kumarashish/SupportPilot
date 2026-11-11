@@ -47,6 +47,24 @@ export const refreshSessionRepository = {
     return result[0] ?? null;
   },
 
+  async consumeActiveByTokenHash(tokenHash: string) {
+    const result = await db
+      .update(refreshSessions)
+      .set({
+        revokedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(refreshSessions.tokenHash, tokenHash),
+          isNull(refreshSessions.revokedAt),
+        ),
+      )
+      .returning();
+
+    return result[0] ?? null;
+  },
+
   async revokeAllForUser(userId: string) {
     const result = await db
       .update(refreshSessions)
