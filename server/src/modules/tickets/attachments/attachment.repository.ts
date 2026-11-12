@@ -9,6 +9,7 @@ const attachmentSelect = {
   id: ticketAttachments.id,
   ticketId: ticketAttachments.ticketId,
   uploaderId: ticketAttachments.uploaderId,
+  customerUploaderId: ticketAttachments.customerUploaderId,
   originalFilename: ticketAttachments.originalFilename,
   contentType: ticketAttachments.contentType,
   sizeBytes: ticketAttachments.sizeBytes,

@@ -8,6 +8,7 @@ import {
   listCustomers,
   updateCustomer,
   updateCustomerStatus,
+  restoreCustomer,
 } from "./customer.controller.js";
 
 export const customerRouter: Router = Router();
@@ -21,5 +22,6 @@ customerRouter.post("/", createCustomer);
 
 customerRouter.patch("/:id", updateCustomer);
 customerRouter.patch("/:id/status", updateCustomerStatus);
+customerRouter.patch("/:id/restore", restoreCustomer);
 
 customerRouter.delete("/:id", deleteCustomer);

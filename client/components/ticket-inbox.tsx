@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { TicketManagementPanel } from "@/components/ticket-management-panel";
 import { ApiError, apiJson } from "@/lib/api";
 import { loadAllCustomers } from "@/lib/ticket-data";
 import {
@@ -31,6 +32,7 @@ import type {
   TicketPriority,
   TicketStatus,
 } from "@/lib/ticket-types";
+import { buildBulkTicketPayload, type BulkTicketAction } from "@/lib/ticket-bulk-workflow";
 
 const pageSize = 20;
 
@@ -112,6 +114,10 @@ export function TicketInbox() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<BulkTicketAction>("status");
+  const [bulkValue, setBulkValue] = useState("in_progress");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -202,6 +208,7 @@ export function TicketInbox() {
 
   const tickets = result?.items ?? [];
   const visibleTickets = tickets;
+  const allVisibleSelected = visibleTickets.length > 0 && visibleTickets.every((ticket) => selectedIds.includes(ticket.id));
   const hasFilters = Boolean(status || priority || customerId || search);
 
   function clearFilters() {
@@ -212,6 +219,37 @@ export function TicketInbox() {
     setPage(1);
     setLoading(true);
     setError("");
+  }
+
+  async function applyBulkAction() {
+    if (selectedIds.length === 0) return;
+    setBulkBusy(true);
+    setError("");
+    try {
+      const teamId = bulkAction === "team" ? window.prompt("Team UUID (leave blank to unassign)") : undefined;
+      const tagIds = bulkAction === "tags"
+        ? (window.prompt("Tag UUIDs separated by commas", "") ?? "").split(",").map((value) => value.trim()).filter(Boolean)
+        : undefined;
+      const payload = buildBulkTicketPayload({
+        ticketIds: selectedIds,
+        action: bulkAction,
+        ...(bulkAction === "team" ? { assignedTeamId: teamId || null } : {}),
+        ...(bulkAction === "tags" ? { tagIds } : {}),
+        ...(bulkAction === "status" ? { status: bulkValue as TicketStatus } : {}),
+        ...(bulkAction === "priority" ? { priority: bulkValue as TicketPriority } : {}),
+      });
+      await apiJson("/tickets/bulk-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setSelectedIds([]);
+      setReloadKey((key) => key + 1);
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Bulk action could not be completed.");
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
   return (
@@ -322,6 +360,7 @@ export function TicketInbox() {
             Clear all filters
           </button>
         )}
+        <TicketManagementPanel />
       </div>
       {customersError && (
         <div className="filter-unavailable" role="status">
@@ -360,6 +399,38 @@ export function TicketInbox() {
             </span>
           )}
         </div>
+        {selectedIds.length > 0 && (
+          <div className="bulk-action-toolbar" role="toolbar" aria-label="Bulk ticket actions">
+            <strong>{selectedIds.length} selected</strong>
+            <select value={bulkAction} onChange={(event) => setBulkAction(event.target.value as BulkTicketAction)}>
+              <option value="status">Change status</option>
+              <option value="priority">Change priority</option>
+              <option value="team">Assign team</option>
+              <option value="tags">Replace tags</option>
+              <option value="archive">Archive</option>
+              <option value="restore">Restore</option>
+            </select>
+            {bulkAction === "status" && (
+              <select value={bulkValue} onChange={(event) => setBulkValue(event.target.value)}>
+                {statusOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            )}
+            {bulkAction === "priority" && (
+              <select value={bulkValue} onChange={(event) => setBulkValue(event.target.value)}>
+                {priorityOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            )}
+            {(bulkAction === "team" || bulkAction === "tags") && (
+              <span className="search-scope">
+                IDs will be requested when you apply this action.
+              </span>
+            )}
+            <button type="button" className="primary-button" disabled={bulkBusy} onClick={() => void applyBulkAction()}>
+              {bulkBusy ? "Applying…" : "Apply"}
+            </button>
+            <button type="button" className="quiet-button" onClick={() => setSelectedIds([])}>Clear</button>
+          </div>
+        )}
 
         {error && (
           <div className="panel-message error-state" role="alert">
@@ -423,6 +494,14 @@ export function TicketInbox() {
               <table className="ticket-table">
                 <thead>
                   <tr>
+                    <th scope="col">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible tickets"
+                        checked={allVisibleSelected}
+                        onChange={(event) => setSelectedIds(event.target.checked ? visibleTickets.map((ticket) => ticket.id) : [])}
+                      />
+                    </th>
                     <th scope="col">Conversation</th>
                     <th scope="col">Status</th>
                     <th scope="col">Priority</th>
@@ -435,6 +514,14 @@ export function TicketInbox() {
                 <tbody>
                   {visibleTickets.map((ticket) => (
                     <tr key={ticket.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${ticket.subject}`}
+                          checked={selectedIds.includes(ticket.id)}
+                          onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, ticket.id])] : current.filter((id) => id !== ticket.id))}
+                        />
+                      </td>
                       <td className="ticket-subject-cell">
                         <Link href={`/tickets/${ticket.id}`} className="ticket-title-link">
                           {ticket.subject}

@@ -10,6 +10,7 @@ import { ticketRelations } from "../../../db/schema/ticket-relations.js";
 import { ticketTagLinks } from "../../../db/schema/ticket-tag-links.js";
 import { ticketTags } from "../../../db/schema/ticket-tags.js";
 import { ticketCategories } from "../../../db/schema/ticket-categories.js";
+import { teams } from "../../../db/schema/teams.js";
 import type { SlaDeadlines } from "../../sla/types/sla.types.js";
 import type {
   CreateTicketInput,
@@ -602,12 +603,27 @@ export const ticketRepository = {
     return ticket ? relation : null;
   },
 
+  async listRelationsInOrganization(organizationId: string, ticketId: string) {
+    return db.select({
+      id: ticketRelations.id,
+      ticketId: ticketRelations.ticketId,
+      relatedTicketId: ticketRelations.relatedTicketId,
+      relationType: ticketRelations.relationType,
+      createdAt: ticketRelations.createdAt,
+    }).from(ticketRelations)
+      .innerJoin(tickets, eq(ticketRelations.relatedTicketId, tickets.id))
+      .where(and(
+        eq(ticketRelations.ticketId, ticketId),
+        eq(tickets.organizationId, organizationId),
+      ));
+  },
+
   async bulkActionInOrganization(
     organizationId: string,
     actorUserId: string,
     ticketIds: string[],
-    action: "assign" | "unassign" | "status" | "priority" | "archive" | "restore" | "delete",
-    value?: { assignedTo?: string | null; status?: Ticket["status"]; priority?: Ticket["priority"] },
+    action: "assign" | "unassign" | "team" | "tags" | "status" | "priority" | "archive" | "restore" | "delete",
+    value?: { assignedTo?: string | null; assignedTeamId?: string | null; tagIds?: string[]; status?: Ticket["status"]; priority?: Ticket["priority"] },
   ) {
     return db.transaction(async (transaction) => {
       const scoped = await transaction.select({ id: tickets.id, status: tickets.status }).from(tickets).where(and(
@@ -624,9 +640,24 @@ export const ticketRepository = {
         ));
         if (!assignee) return { success: false, updated: 0 } as const;
       }
+      if (action === "team" && value?.assignedTeamId) {
+        const [team] = await transaction.select({ id: teams.id }).from(teams).where(and(
+          eq(teams.id, value.assignedTeamId),
+          eq(teams.organizationId, organizationId),
+        ));
+        if (!team) return { success: false, updated: 0 } as const;
+      }
+      if (action === "tags" && value?.tagIds) {
+        const tags = await transaction.select({ id: ticketTags.id }).from(ticketTags).where(and(
+          eq(ticketTags.organizationId, organizationId),
+          inArray(ticketTags.id, value.tagIds),
+        ));
+        if (tags.length !== new Set(value.tagIds).size) return { success: false, updated: 0 } as const;
+      }
       let setValue: Partial<typeof tickets.$inferInsert> = { updatedAt: new Date() };
       if (action === "assign") setValue.assignedTo = value?.assignedTo ?? null;
       if (action === "unassign") setValue.assignedTo = null;
+      if (action === "team") setValue.assignedTeamId = value?.assignedTeamId ?? null;
       if (action === "status" && value?.status) setValue.status = value.status;
       if (action === "priority" && value?.priority) setValue.priority = value.priority;
       if (action === "archive") setValue.archivedAt = new Date();
@@ -636,6 +667,17 @@ export const ticketRepository = {
         eq(tickets.organizationId, organizationId),
         inArray(tickets.id, ticketIds),
       )).returning({ id: tickets.id });
+      if (action === "tags" && value?.tagIds) {
+        await transaction.delete(ticketTagLinks).where(inArray(ticketTagLinks.ticketId, ticketIds));
+        if (value.tagIds.length > 0) {
+          await transaction.insert(ticketTagLinks).values(
+            updated.flatMap((ticket) => value.tagIds!.map((tagId) => ({
+              ticketId: ticket.id,
+              tagId,
+            }))),
+          );
+        }
+      }
       await transaction.insert(ticketActivities).values(updated.map((ticket) => ({
         organizationId,
         ticketId: ticket.id,

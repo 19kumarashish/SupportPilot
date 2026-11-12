@@ -31,6 +31,7 @@ import {
   listCategories, createCategory, updateCategory, deleteCategory,
   listTags, createTag, updateTag, deleteTag, replaceTicketTags,
   addTicketRelation,
+  listTicketRelations, removeTicketRelation,
 } from "./ticket-management.controller.js";
 
 export const ticketRouter: Router = Router();
@@ -49,6 +50,8 @@ ticketRouter.post("/bulk-actions", requireRole("admin"), bulkTicketAction);
 
 ticketRouter.patch("/:id/tags", requireRole("admin", "agent"), replaceTicketTags);
 ticketRouter.post("/:id/relations", requireRole("admin", "agent"), addTicketRelation);
+ticketRouter.get("/:id/relations", listTicketRelations);
+ticketRouter.delete("/:id/relations/:relationId", requireRole("admin", "agent"), removeTicketRelation);
 ticketRouter.get("/:id/activity", getTicketActivity);
 ticketRouter.get("/:id/comments", listTicketComments);
 ticketRouter.post("/:id/comments", createTicketComment);

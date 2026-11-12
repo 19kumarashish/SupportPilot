@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   LockKeyhole,
+  Link2,
   MessageCircle,
   Paperclip,
   Send,
@@ -31,6 +32,8 @@ import type {
   Ticket,
   TicketAttachment,
   TicketComment,
+  TicketActivity,
+  TicketRelation,
   TicketPriority,
   TicketStatus,
 } from "@/lib/ticket-types";
@@ -100,6 +103,10 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   const [commentPage, setCommentPage] = useState(1);
   const [commentTotal, setCommentTotal] = useState(0);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
+  const [activity, setActivity] = useState<TicketActivity[]>([]);
+  const [relations, setRelations] = useState<TicketRelation[]>([]);
+  const [relationTicketId, setRelationTicketId] = useState("");
+  const [relationType, setRelationType] = useState<TicketRelation["relationType"]>("related");
   const [attachmentPage, setAttachmentPage] = useState(1);
   const [attachmentTotal, setAttachmentTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -127,7 +134,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
       setCustomer(null);
       setMembers([]);
       try {
-        const [ticketResult, commentResult, attachmentResult] = await Promise.all([
+        const [ticketResult, commentResult, attachmentResult, activityResult, relationResult] = await Promise.all([
           apiJson<{ data: { ticket: Ticket } }>(`/tickets/${ticketId}`, { signal }),
           apiJson<{ data: CommentPage }>(
             `/tickets/${ticketId}/comments?page=1&limit=${commentPageSize}`,
@@ -137,6 +144,8 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
             `/tickets/${ticketId}/attachments?page=1&limit=${attachmentPageSize}`,
             { signal },
           ),
+          apiJson<{ data: { activity: TicketActivity[] } }>(`/tickets/${ticketId}/activity`, { signal }),
+          apiJson<{ data: { relations: TicketRelation[] } }>(`/tickets/${ticketId}/relations`, { signal }),
         ]);
         if (signal.aborted) return;
         setTicket(ticketResult.data.ticket);
@@ -146,6 +155,8 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
         setAttachments(attachmentResult.data.attachments);
         setAttachmentPage(attachmentResult.data.page);
         setAttachmentTotal(attachmentResult.data.total);
+        setActivity(activityResult.data.activity);
+        setRelations(relationResult.data.relations);
 
         const relatedRequests: Promise<void>[] = [
           apiJson<{ data: { customer: Customer } }>(
@@ -359,6 +370,37 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
     }, "Assignment updated.");
   }
 
+  async function updateArchive(archived: boolean) {
+    await runAction("archive", async () => {
+      const response = await apiJson<{ data: { ticket: Ticket } }>(`/tickets/${ticketId}/archive`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      setTicket(response.data.ticket);
+    }, archived ? "Ticket archived." : "Ticket restored.");
+  }
+
+  async function addRelation() {
+    if (!relationTicketId.trim()) return;
+    await runAction("relation", async () => {
+      const response = await apiJson<{ data: { relation: TicketRelation } }>(`/tickets/${ticketId}/relations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relatedTicketId: relationTicketId.trim(), relationType }),
+      });
+      setRelations((current) => [...current, response.data.relation]);
+      setRelationTicketId("");
+    }, "Relation added.");
+  }
+
+  async function removeRelation(relationId: string) {
+    await runAction("relation", async () => {
+      await apiJson(`/tickets/${ticketId}/relations/${relationId}`, { method: "DELETE" });
+      setRelations((current) => current.filter((relation) => relation.id !== relationId));
+    }, "Relation removed.");
+  }
+
   if (loading) {
     return (
       <AppShell>
@@ -455,6 +497,15 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
       <div className="detail-layout">
         <section className="conversation-column" aria-label="Ticket conversation">
+          <section className="detail-card activity-card" aria-label="Ticket activity">
+            <h2>Activity timeline</h2>
+            <ol className="activity-timeline">
+              {activity.map((item) => (
+                <li key={item.id}><strong>{humanize(item.action)}</strong><time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time></li>
+              ))}
+              {activity.length === 0 && <li>No activity recorded yet.</li>}
+            </ol>
+          </section>
           <div className="conversation-context">
             <div className="customer-profile">
               <span className="customer-avatar customer-avatar-large">
@@ -622,6 +673,27 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 </dd>
               </div>
             </dl>
+            <div className="detail-card-section">
+              <div className="card-title-row"><h2>Linked tickets</h2><Link2 size={16} /></div>
+              <ul className="relation-list">
+                {relations.map((relation) => (
+                  <li key={relation.id}>
+                    <span>{humanize(relation.relationType)} · {relation.relatedTicketId.slice(0, 8)}</span>
+                    <button type="button" className="text-button" onClick={() => void removeRelation(relation.id)}>Unlink</button>
+                  </li>
+                ))}
+              </ul>
+              <div className="inline-form">
+                <input className="text-field" value={relationTicketId} onChange={(event) => setRelationTicketId(event.target.value)} placeholder="Related ticket UUID" />
+                <select value={relationType} onChange={(event) => setRelationType(event.target.value as TicketRelation["relationType"])}>
+                  {(["parent", "child", "duplicate", "related"] as const).map((value) => <option value={value} key={value}>{humanize(value)}</option>)}
+                </select>
+                <button type="button" className="quiet-button" onClick={() => void addRelation()}>Link</button>
+              </div>
+            </div>
+            <button type="button" className="quiet-button" onClick={() => void updateArchive(Boolean(!ticket.archivedAt))}>
+              {ticket.archivedAt ? "Restore ticket" : "Archive ticket"}
+            </button>
           </section>
 
           <section className="detail-card attachment-card">
@@ -636,14 +708,14 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                     <span className="attachment-file-icon">{getAttachmentIcon(attachment.contentType)}</span>
                     <span className="attachment-copy">
                       <strong title={attachment.originalFilename}>{attachment.originalFilename}</strong>
-                      <small>{formatBytes(attachment.sizeBytes)} · {formatDate(attachment.createdAt)}</small>
+                      <small>{formatBytes(attachment.sizeBytes)} · {formatDate(attachment.createdAt)} · {attachment.scanStatus ?? "clean"}</small>
                     </span>
                     <button
                       type="button"
                       className="icon-button attachment-action"
                       aria-label={`Download ${attachment.originalFilename}`}
                       title="Download"
-                      disabled={busyAction === `download-${attachment.id}`}
+                      disabled={busyAction === `download-${attachment.id}` || attachment.scanStatus !== "clean"}
                       onClick={() => void downloadAttachment(attachment)}
                     >
                       {busyAction === `download-${attachment.id}` ? <LoaderCircle size={15} className="spin" /> : <ArrowDownToLine size={15} />}

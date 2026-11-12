@@ -13,6 +13,7 @@ export type CustomerResponse = Pick<
   | "isActive"
   | "createdAt"
   | "updatedAt"
+  | "deletedAt"
 >;
 
 export type CreateCustomerInput = {
@@ -38,6 +39,7 @@ export type CustomerStatusInput = {
 export type PaginationQuery = {
   page: number;
   limit: number;
+  includeDeleted: boolean;
 };
 
 export type PaginatedCustomerResponse = {

@@ -182,6 +182,8 @@ export const bulkTicketAction: RequestHandler = async (request, response) => {
     body.data.action,
     {
       ...(body.data.assignedTo !== undefined && { assignedTo: body.data.assignedTo }),
+      ...(body.data.assignedTeamId !== undefined && { assignedTeamId: body.data.assignedTeamId }),
+      ...(body.data.tagIds !== undefined && { tagIds: body.data.tagIds }),
       ...(body.data.status !== undefined && { status: body.data.status }),
       ...(body.data.priority !== undefined && { priority: body.data.priority }),
     },

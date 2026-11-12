@@ -80,12 +80,16 @@ export const deleteTicketSchema = z.object({ delete: z.boolean().default(true) }
 
 export const bulkTicketActionSchema = z.object({
   ticketIds: z.array(z.uuid()).min(1).max(100),
-  action: z.enum(["assign", "unassign", "status", "priority", "archive", "restore", "delete"]),
+  action: z.enum(["assign", "unassign", "team", "tags", "status", "priority", "archive", "restore", "delete"]),
   assignedTo: z.union([z.uuid(), z.null()]).optional(),
+  assignedTeamId: z.union([z.uuid(), z.null()]).optional(),
+  tagIds: z.array(z.uuid()).max(20).optional(),
   status: z.enum(ticketStatuses).optional(),
   priority: z.enum(ticketPriorities).optional(),
 }).strict().superRefine((value, context) => {
   if (value.action === "assign" && !value.assignedTo) context.addIssue({ code: "custom", message: "assignedTo is required" });
   if (value.action === "status" && !value.status) context.addIssue({ code: "custom", message: "status is required" });
   if (value.action === "priority" && !value.priority) context.addIssue({ code: "custom", message: "priority is required" });
+  if (value.action === "team" && value.assignedTeamId === undefined) context.addIssue({ code: "custom", message: "assignedTeamId is required" });
+  if (value.action === "tags" && !value.tagIds) context.addIssue({ code: "custom", message: "tagIds is required" });
 });

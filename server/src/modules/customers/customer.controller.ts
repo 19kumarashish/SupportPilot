@@ -155,3 +155,11 @@ export async function deleteCustomer(
     data: { customer },
   });
 }
+
+export async function restoreCustomer(request: Request, response: Response) {
+  const { organizationId } = getTenantContext(request);
+  const parsedParams = customerIdParamsSchema.safeParse(request.params);
+  if (!parsedParams.success) throw validationError();
+  const customer = await customerService.restoreCustomer(organizationId, parsedParams.data.id);
+  response.json({ success: true, data: { customer } });
+}
