@@ -45,6 +45,18 @@ const envSchema = z.object({
     .string()
     .url()
     .default("http://localhost:3000"),
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  ATTACHMENT_STORAGE_PATH: z.string().min(1).optional(),
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_REGION: z.string().min(1).optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  MALWARE_SCANNER_DRIVER: z.enum(["noop", "http", "clamav"]).default("noop"),
+  MALWARE_SCANNER_URL: z.string().url().optional(),
+  MALWARE_SCANNER_API_KEY: z.string().min(1).optional(),
+  CLAMAV_HOST: z.string().min(1).default("127.0.0.1"),
+  CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
 }).superRefine((values, context) => {
   if (
     values.NODE_ENV === "production" &&
@@ -54,6 +66,27 @@ const envSchema = z.object({
       code: "custom",
       path: ["PUBLIC_APP_URL"],
       message: "PUBLIC_APP_URL is required in production",
+    });
+  }
+  if (values.STORAGE_DRIVER === "s3") {
+    for (const key of ["S3_BUCKET", "S3_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"] as const) {
+      if (!values[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} is required when STORAGE_DRIVER=s3`,
+        });
+      }
+    }
+  }
+  if (
+    values.MALWARE_SCANNER_DRIVER === "http" &&
+    !values.MALWARE_SCANNER_URL
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["MALWARE_SCANNER_URL"],
+      message: "MALWARE_SCANNER_URL is required for the HTTP malware scanner",
     });
   }
 });

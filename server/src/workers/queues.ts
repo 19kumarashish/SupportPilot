@@ -7,12 +7,14 @@ export const EMAIL_QUEUE_NAME = "email-notifications";
 export const SLA_QUEUE_NAME = "sla-monitor";
 export const EMAIL_DLQ_NAME = "email-notifications-dlq";
 export const SLA_DLQ_NAME = "sla-monitor-dlq";
+export const ATTACHMENT_CLEANUP_QUEUE_NAME = "attachment-cleanup";
 
 let connection: Redis | undefined;
 let emailQueue: Queue | undefined;
 let slaQueue: Queue | undefined;
 let emailDlq: Queue | undefined;
 let slaDlq: Queue | undefined;
+let attachmentCleanupQueue: Queue | undefined;
 
 const getConnection = (): Redis | null => {
   if (!env.REDIS_URL) return null;
@@ -44,6 +46,16 @@ export const getSlaQueue = (): Queue | null => {
   return slaQueue;
 };
 
+export const getAttachmentCleanupQueue = (): Queue | null => {
+  const redis = getConnection();
+  if (!redis) return null;
+  attachmentCleanupQueue ??= new Queue(
+    ATTACHMENT_CLEANUP_QUEUE_NAME,
+    queueOptions(redis),
+  );
+  return attachmentCleanupQueue;
+};
+
 export const getDeadLetterQueues = (): {
   email: Queue;
   sla: Queue;
@@ -62,6 +74,7 @@ export const closeQueues = async (): Promise<void> => {
     slaQueue?.close(),
     emailDlq?.close(),
     slaDlq?.close(),
+    attachmentCleanupQueue?.close(),
   ]);
   if (connection) {
     await connection.quit();
@@ -71,4 +84,5 @@ export const closeQueues = async (): Promise<void> => {
   slaQueue = undefined;
   emailDlq = undefined;
   slaDlq = undefined;
+  attachmentCleanupQueue = undefined;
 };

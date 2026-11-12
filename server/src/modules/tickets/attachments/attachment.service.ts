@@ -1,14 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { AppError } from "../../../shared/errors/app-error.js";
 import { ticketRepository } from "../repositories/ticket.repository.js";
 import { ticketAttachmentRepository } from "./attachment.repository.js";
-import { localAttachmentStorage } from "./attachment.storage.js";
+import {
+  attachmentStorage,
+  attachmentStorageDriver,
+} from "../../../infrastructure/storage/index.js";
+import { recordAuditEvent } from "../../../shared/security/audit.js";
+import { malwareScanner } from "./attachment.scanner.js";
 import type { ListTicketAttachmentsQuery } from "./attachment.validators.js";
 
 export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
 
-const allowedFileSignatures: Record<string, (contents: Buffer) => boolean> = {
+export const allowedFileSignatures: Record<string, (contents: Buffer) => boolean> = {
   "application/pdf": (contents) =>
     contents.subarray(0, 5).toString("ascii") === "%PDF-",
   "image/png": (contents) =>
@@ -36,6 +41,39 @@ const safeOriginalFilename = (filename: string): boolean =>
   filename !== ".." &&
   !/[\\/\x00-\x1f\x7f]/.test(filename) &&
   /^[\x20-\x7e]+$/.test(filename);
+
+const storageFilename = (filename: string): string =>
+  filename.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "attachment";
+
+export const extensionMatchesContentType = (
+  filename: string,
+  contentType: string,
+): boolean => {
+  const extension = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
+  return {
+    "application/pdf": ["pdf"],
+    "image/png": ["png"],
+    "image/jpeg": ["jpg", "jpeg"],
+  }[contentType]?.includes(extension) ?? false;
+};
+
+export const ensureAttachmentDownloadable = (
+  scanStatus: "pending" | "clean" | "infected",
+): void => {
+  if (scanStatus !== "clean") {
+    throw new AppError(
+      scanStatus === "pending" ? 409 : 403,
+      "ATTACHMENT_NOT_AVAILABLE",
+      "Attachment is not available for download",
+    );
+  }
+};
+
+export const makeAttachmentStorageKey = (
+  organizationId: string,
+  ticketId: string,
+  filename: string,
+): string => `org/${organizationId}/tickets/${ticketId}/${randomUUID()}-${storageFilename(filename)}`;
 
 const toPublicAttachment = <T extends { storageKey: string }>(
   attachment: T,
@@ -73,6 +111,13 @@ export const ticketAttachmentService = {
         "Attachment must not exceed 10 MiB",
       );
     }
+    if (!extensionMatchesContentType(file.originalname, file.mimetype)) {
+      throw new AppError(
+        400,
+        "UNSUPPORTED_ATTACHMENT_TYPE",
+        "Attachment extension does not match its MIME type",
+      );
+    }
     const signatureValidator = allowedFileSignatures[file.mimetype];
     if (!signatureValidator || !signatureValidator(file.buffer)) {
       throw new AppError(
@@ -82,8 +127,13 @@ export const ticketAttachmentService = {
       );
     }
 
-    const storageKey = randomUUID();
-    await localAttachmentStorage.put(storageKey, file.buffer);
+    const storageKey = makeAttachmentStorageKey(
+      organizationId,
+      ticketId,
+      file.originalname,
+    );
+    const checksumSha256 = createHash("sha256").update(file.buffer).digest("hex");
+    await attachmentStorage.upload(storageKey, file.buffer, file.mimetype);
 
     try {
       const attachment = await ticketAttachmentRepository.create({
@@ -93,6 +143,9 @@ export const ticketAttachmentService = {
         contentType: file.mimetype,
         sizeBytes: file.size,
         storageKey,
+        storageDriver: attachmentStorageDriver,
+        scanStatus: "pending",
+        checksumSha256,
       });
       if (!attachment) {
         throw new AppError(
@@ -102,10 +155,42 @@ export const ticketAttachmentService = {
         );
       }
 
-      return toPublicAttachment(attachment);
+      const scanStatus = await malwareScanner.scan({
+        contents: file.buffer,
+        filename: file.originalname,
+        contentType: file.mimetype,
+      });
+      const scannedAt = new Date();
+      const scanned = await ticketAttachmentRepository.markScanResult(
+        organizationId,
+        ticketId,
+        attachment.id,
+        scanStatus,
+        scannedAt,
+      );
+      if (!scanned) {
+        throw new AppError(500, "ATTACHMENT_SCAN_UPDATE_FAILED", "Failed to save attachment scan result");
+      }
+      await recordAuditEvent({
+        organizationId,
+        actorUserId: uploaderId,
+        eventType: "attachment_uploaded",
+        resourceType: "ticket_attachment",
+        resourceId: attachment.id,
+        metadata: { storageDriver: attachment.storageDriver, checksumSha256 },
+      });
+      await recordAuditEvent({
+        organizationId,
+        actorUserId: uploaderId,
+        eventType: "attachment_scanned",
+        resourceType: "ticket_attachment",
+        resourceId: attachment.id,
+        metadata: { scanStatus },
+      });
+      return toPublicAttachment(scanned);
     } catch (error) {
       try {
-        await localAttachmentStorage.delete(storageKey);
+        await attachmentStorage.delete(storageKey);
       } catch (cleanupError) {
         throw new AggregateError(
           [error, cleanupError],
@@ -148,6 +233,7 @@ export const ticketAttachmentService = {
     organizationId: string,
     ticketId: string,
     attachmentId: string,
+    actorUserId: string,
   ) {
     const attachment =
       await ticketAttachmentRepository.findByIdInOrganization(
@@ -158,11 +244,20 @@ export const ticketAttachmentService = {
     if (!attachment) {
       throw attachmentNotFound();
     }
+    ensureAttachmentDownloadable(attachment.scanStatus);
 
     try {
+      const stream = await attachmentStorage.getDownloadStream(attachment.storageKey);
+      await recordAuditEvent({
+        organizationId,
+        actorUserId,
+        eventType: "attachment_downloaded",
+        resourceType: "ticket_attachment",
+        resourceId: attachment.id,
+      });
       return {
         attachment: toPublicAttachment(attachment),
-        contents: await localAttachmentStorage.get(attachment.storageKey),
+        stream,
       };
     } catch (error) {
       if (
@@ -185,6 +280,7 @@ export const ticketAttachmentService = {
     organizationId: string,
     ticketId: string,
     attachmentId: string,
+    actorUserId: string,
   ) {
     const attachment =
       await ticketAttachmentRepository.findByIdInOrganization(
@@ -205,7 +301,14 @@ export const ticketAttachmentService = {
     }
 
     try {
-      await localAttachmentStorage.delete(attachment.storageKey);
+      await attachmentStorage.delete(attachment.storageKey);
+      await recordAuditEvent({
+        organizationId,
+        actorUserId,
+        eventType: "attachment_deleted",
+        resourceType: "ticket_attachment",
+        resourceId: attachment.id,
+      });
     } catch (storageError) {
       await ticketAttachmentRepository.restore({
         id: attachment.id,
@@ -215,6 +318,10 @@ export const ticketAttachmentService = {
         contentType: attachment.contentType,
         sizeBytes: attachment.sizeBytes,
         storageKey: attachment.storageKey,
+        storageDriver: attachment.storageDriver,
+        scanStatus: attachment.scanStatus,
+        scannedAt: attachment.scannedAt,
+        checksumSha256: attachment.checksumSha256,
       });
       throw storageError;
     }

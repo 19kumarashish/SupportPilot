@@ -5,10 +5,15 @@ import { logger } from "../infrastructure/logger/index.js";
 import { closeQueues, getSlaQueue } from "./queues.js";
 import { createEmailNotificationWorker } from "./email-notification.worker.js";
 import { createSlaMonitorWorker } from "./sla-monitor.worker.js";
+import {
+  createAttachmentCleanupWorker,
+  scheduleAttachmentCleanup,
+} from "./attachment-cleanup.worker.js";
 
 const emailWorker = createEmailNotificationWorker();
 const slaWorker = createSlaMonitorWorker();
-const workers = [emailWorker, slaWorker].filter(
+const attachmentCleanupWorker = createAttachmentCleanupWorker();
+const workers = [emailWorker, slaWorker, attachmentCleanupWorker].filter(
   (worker): worker is Worker => worker !== null,
 );
 
@@ -21,6 +26,7 @@ if (env.REDIS_URL) {
       { name: "scan", data: { requestedAt: new Date().toISOString() } },
     );
   }
+  void scheduleAttachmentCleanup();
 }
 
 let shuttingDown = false;
