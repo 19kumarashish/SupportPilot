@@ -10,6 +10,7 @@ import {
 
 import { tickets } from "./tickets.js";
 import { users } from "../../infrastructure/database/schema/users.js";
+import { customers } from "./customers.js";
 
 export const attachmentStorageDriver = pgEnum("attachment_storage_driver", [
   "local",
@@ -29,8 +30,9 @@ export const ticketAttachments = pgTable(
       .notNull()
       .references(() => tickets.id, { onDelete: "cascade" }),
     uploaderId: uuid("uploader_id")
-      .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
+    customerUploaderId: uuid("customer_uploader_id")
+      .references(() => customers.id, { onDelete: "cascade" }),
     originalFilename: varchar("original_filename", { length: 180 }).notNull(),
     contentType: varchar("content_type", { length: 100 }).notNull(),
     sizeBytes: integer("size_bytes").notNull(),

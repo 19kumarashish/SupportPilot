@@ -1,0 +1,3 @@
+ALTER TABLE "ticket_attachments" ALTER COLUMN "uploader_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "ticket_attachments" ADD COLUMN "customer_uploader_id" uuid;--> statement-breakpoint
+ALTER TABLE "ticket_attachments" ADD CONSTRAINT "ticket_attachments_customer_uploader_id_customers_id_fk" FOREIGN KEY ("customer_uploader_id") REFERENCES "public"."customers"("id") ON DELETE cascade ON UPDATE no action;

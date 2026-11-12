@@ -82,3 +82,25 @@ export const addTicketRelation: RequestHandler = async (request, response) => {
   if (!relation) throw new AppError(404, "TICKET_RELATION_NOT_FOUND", "One or both tickets were not found in this organization");
   response.status(201).json({ success: true, data: { relation } });
 };
+
+export const listTicketRelations: RequestHandler = async (request, response) => {
+  const tenant = getTenantContext(request);
+  const params = idSchema.safeParse(request.params);
+  if (!params.success) throw validationError();
+  const ticket = await ticketRepository.findByIdInOrganization(tenant.organizationId, params.data.id);
+  if (!ticket) throw new AppError(404, "TICKET_NOT_FOUND", "Ticket not found");
+  response.json({ success: true, data: { relations: await ticketRepository.listRelationsInOrganization(tenant.organizationId, params.data.id) } });
+};
+
+export const removeTicketRelation: RequestHandler = async (request, response) => {
+  const tenant = getTenantContext(request);
+  const params = z.object({ id: z.uuid(), relationId: z.uuid() }).safeParse(request.params);
+  if (!params.success) throw validationError();
+  const relation = await ticketRepository.removeRelationInOrganization(
+    tenant.organizationId,
+    params.data.id,
+    params.data.relationId,
+  );
+  if (!relation) throw new AppError(404, "TICKET_RELATION_NOT_FOUND", "Ticket relation not found");
+  response.status(204).end();
+};

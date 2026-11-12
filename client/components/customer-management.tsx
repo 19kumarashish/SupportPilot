@@ -56,7 +56,7 @@ export function CustomerDirectory() {
   useEffect(() => {
     const controller = new AbortController();
     apiJson<{ data: PageResult<Customer> }>(
-      `/customers?page=${page}&limit=${pageSize}`,
+      `/customers?page=${page}&limit=${pageSize}&includeDeleted=true`,
       { signal: controller.signal },
     )
       .then((response) => {
@@ -84,6 +84,15 @@ export function CustomerDirectory() {
     setLoading(true);
     setError("");
     setReloadKey((value) => value + 1);
+  }
+
+  async function restoreCustomer(customerId: string) {
+    try {
+      await apiJson(`/customers/${customerId}/restore`, { method: "PATCH" });
+      refreshCustomers();
+    } catch (cause) {
+      setError(errorMessage(cause, "Could not restore this customer."));
+    }
   }
 
   return (
@@ -207,12 +216,14 @@ export function CustomerDirectory() {
                     <td>{customer.email || customer.phone || "—"}</td>
                     <td>
                       <span className={`management-status ${customer.isActive ? "is-active" : "is-inactive"}`}>
-                        {customer.isActive ? "Active" : "Inactive"}
+                        {customer.deletedAt ? "Archived" : customer.isActive ? "Active" : "Inactive"}
                       </span>
                     </td>
                     <td>{formatDate(customer.createdAt)}</td>
                     <td>
-                      <Link className="text-button" href={`/customers/${customer.id}`}>View</Link>
+                      {customer.deletedAt ? (
+                        <button className="text-button" type="button" onClick={() => void restoreCustomer(customer.id)}>Restore</button>
+                      ) : <Link className="text-button" href={`/customers/${customer.id}`}>View</Link>}
                     </td>
                   </tr>
                 ))}

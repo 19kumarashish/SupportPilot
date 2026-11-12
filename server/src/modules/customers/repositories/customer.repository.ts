@@ -35,7 +35,7 @@ export async function listInOrganization(
       .from(customers)
       .where(and(
         eq(customers.organizationId, organizationId),
-        isNull(customers.deletedAt),
+        ...(pagination.includeDeleted ? [] : [isNull(customers.deletedAt)]),
       ))
       .orderBy(asc(customers.createdAt))
       .limit(pagination.limit)
@@ -46,7 +46,7 @@ export async function listInOrganization(
       .from(customers)
       .where(and(
         eq(customers.organizationId, organizationId),
-        isNull(customers.deletedAt),
+        ...(pagination.includeDeleted ? [] : [isNull(customers.deletedAt)]),
       )),
   ]);
 
@@ -220,4 +220,15 @@ export async function deleteInOrganization(
     .returning(customerSelect);
 
   return { blocked: false, customer: customer ?? null } as const;
+}
+
+export async function restoreInOrganization(organizationId: string, customerId: string) {
+  const [customer] = await db.update(customers)
+    .set({ deletedAt: null, isActive: true, updatedAt: new Date() })
+    .where(and(
+      eq(customers.id, customerId),
+      eq(customers.organizationId, organizationId),
+    ))
+    .returning(customerSelect);
+  return customer ?? null;
 }

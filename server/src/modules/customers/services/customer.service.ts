@@ -182,3 +182,9 @@ export async function deleteCustomer(
 
   return toCustomerResponse(result.customer);
 }
+
+export async function restoreCustomer(organizationId: string, customerId: string) {
+  const customer = await customerRepository.restoreInOrganization(organizationId, customerId);
+  if (!customer) throw customerNotFound();
+  return toCustomerResponse(customer);
+}

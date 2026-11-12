@@ -39,6 +39,26 @@ export interface TicketAttachment {
   contentType: string;
   sizeBytes: number;
   createdAt: string;
+  scanStatus?: "pending" | "clean" | "infected";
+  scannedAt?: string | null;
+}
+
+export interface TicketActivity {
+  id: string;
+  ticketId: string;
+  action: string;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface TicketRelation {
+  id: string;
+  ticketId: string;
+  relatedTicketId: string;
+  relationType: "parent" | "child" | "duplicate" | "related" | "blocks" | "blocked_by";
+  createdAt: string;
 }
 
 export interface Customer {
@@ -51,6 +71,7 @@ export interface Customer {
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export interface TeamMember {

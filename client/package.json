@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "pnpm --dir ../server exec tsx --tsconfig ../client/tsconfig.json --test ../client/components/dashboard-overview.test.tsx ../client/lib/dashboard-data.test.ts ../client/components/email-verification-page.test.tsx ../client/components/profile-menu.test.tsx ../client/lib/api.test.ts ../client/lib/auth.test.tsx ../client/lib/ticket-workflow.test.ts ../client/lib/customer-workflow.test.ts ../client/lib/team-workflow.test.ts ../client/lib/settings-workflow.test.ts"
+    "test": "pnpm --dir ../server exec tsx --tsconfig ../client/tsconfig.json --test ../client/components/dashboard-overview.test.tsx ../client/lib/dashboard-data.test.ts ../client/components/email-verification-page.test.tsx ../client/components/profile-menu.test.tsx ../client/lib/api.test.ts ../client/lib/auth.test.tsx ../client/lib/ticket-workflow.test.ts ../client/lib/customer-workflow.test.ts ../client/lib/team-workflow.test.ts ../client/lib/settings-workflow.test.ts ../client/lib/ticket-phase-two.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

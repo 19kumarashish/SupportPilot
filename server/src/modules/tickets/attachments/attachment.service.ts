@@ -86,8 +86,9 @@ export const ticketAttachmentService = {
   async create(
     organizationId: string,
     ticketId: string,
-    uploaderId: string,
+    uploaderId: string | null,
     file: Express.Multer.File,
+    customerUploaderId?: string,
   ) {
     const ticket = await ticketRepository.findByIdInOrganization(
       organizationId,
@@ -139,6 +140,7 @@ export const ticketAttachmentService = {
       const attachment = await ticketAttachmentRepository.create({
         ticketId,
         uploaderId,
+        ...(customerUploaderId ? { customerUploaderId } : {}),
         originalFilename: file.originalname,
         contentType: file.mimetype,
         sizeBytes: file.size,
@@ -173,7 +175,7 @@ export const ticketAttachmentService = {
       }
       await recordAuditEvent({
         organizationId,
-        actorUserId: uploaderId,
+        ...(uploaderId ? { actorUserId: uploaderId } : {}),
         eventType: "attachment_uploaded",
         resourceType: "ticket_attachment",
         resourceId: attachment.id,
@@ -181,7 +183,7 @@ export const ticketAttachmentService = {
       });
       await recordAuditEvent({
         organizationId,
-        actorUserId: uploaderId,
+        ...(uploaderId ? { actorUserId: uploaderId } : {}),
         eventType: "attachment_scanned",
         resourceType: "ticket_attachment",
         resourceId: attachment.id,
@@ -199,6 +201,21 @@ export const ticketAttachmentService = {
       }
       throw error;
     }
+  },
+
+  async createForCustomer(
+    organizationId: string,
+    ticketId: string,
+    customerId: string,
+    file: Express.Multer.File,
+  ) {
+    const ticket = await ticketRepository.findForCustomer(
+      organizationId,
+      customerId,
+      ticketId,
+    );
+    if (!ticket) throw ticketNotFound();
+    return this.create(organizationId, ticketId, null, file, customerId);
   },
 
   async list(
@@ -233,7 +250,7 @@ export const ticketAttachmentService = {
     organizationId: string,
     ticketId: string,
     attachmentId: string,
-    actorUserId: string,
+    actorUserId?: string,
   ) {
     const attachment =
       await ticketAttachmentRepository.findByIdInOrganization(
@@ -250,7 +267,7 @@ export const ticketAttachmentService = {
       const stream = await attachmentStorage.getDownloadStream(attachment.storageKey);
       await recordAuditEvent({
         organizationId,
-        actorUserId,
+        ...(actorUserId ? { actorUserId } : {}),
         eventType: "attachment_downloaded",
         resourceType: "ticket_attachment",
         resourceId: attachment.id,
@@ -314,6 +331,7 @@ export const ticketAttachmentService = {
         id: attachment.id,
         ticketId: attachment.ticketId,
         uploaderId: attachment.uploaderId,
+        customerUploaderId: attachment.customerUploaderId,
         originalFilename: attachment.originalFilename,
         contentType: attachment.contentType,
         sizeBytes: attachment.sizeBytes,
