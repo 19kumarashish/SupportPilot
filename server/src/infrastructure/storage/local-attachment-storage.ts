@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
 
 import { env } from "../../config/env.js";
@@ -15,7 +15,11 @@ const getStoragePath = (key: string): string => {
   }
   const root = storageRoot();
   const path = resolve(root, key);
-  if (dirname(path) !== root && !path.startsWith(`${root}\\`)) {
+  const relativePath = relative(root, path);
+  if (
+    relativePath.startsWith("..") ||
+    isAbsolute(relativePath)
+  ) {
     throw new Error("Attachment path escaped storage root");
   }
   return path;
