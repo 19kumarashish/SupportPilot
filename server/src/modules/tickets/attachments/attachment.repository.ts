@@ -1,4 +1,4 @@
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, lt } from "drizzle-orm";
 
 import { ticketAttachments } from "../../../db/schema/ticket-attachments.js";
 import { tickets } from "../../../db/schema/tickets.js";
@@ -13,6 +13,10 @@ const attachmentSelect = {
   contentType: ticketAttachments.contentType,
   sizeBytes: ticketAttachments.sizeBytes,
   storageKey: ticketAttachments.storageKey,
+  storageDriver: ticketAttachments.storageDriver,
+  scanStatus: ticketAttachments.scanStatus,
+  scannedAt: ticketAttachments.scannedAt,
+  checksumSha256: ticketAttachments.checksumSha256,
   createdAt: ticketAttachments.createdAt,
 };
 
@@ -97,5 +101,49 @@ export const ticketAttachmentRepository = {
       .returning(attachmentSelect);
 
     return attachment ?? null;
+  },
+
+  async markScanResult(
+    organizationId: string,
+    ticketId: string,
+    attachmentId: string,
+    scanStatus: "clean" | "infected",
+    scannedAt: Date,
+  ) {
+    const [attachment] = await db
+      .update(ticketAttachments)
+      .set({ scanStatus, scannedAt })
+      .where(and(
+        eq(ticketAttachments.id, attachmentId),
+        eq(ticketAttachments.ticketId, ticketId),
+        eq(tickets.organizationId, organizationId),
+      ))
+      .from(tickets)
+      .returning(attachmentSelect);
+    return attachment ?? null;
+  },
+
+  async listStorageKeys() {
+    return db.select({
+      storageKey: ticketAttachments.storageKey,
+      createdAt: ticketAttachments.createdAt,
+    }).from(ticketAttachments);
+  },
+
+  async listStalePending(cutoff: Date) {
+    return db.select({
+      id: ticketAttachments.id,
+      ticketId: ticketAttachments.ticketId,
+      storageKey: ticketAttachments.storageKey,
+    })
+      .from(ticketAttachments)
+      .where(and(
+        eq(ticketAttachments.scanStatus, "pending"),
+        lt(ticketAttachments.createdAt, cutoff),
+      ));
+  },
+
+  async deleteById(id: string) {
+    await db.delete(ticketAttachments).where(eq(ticketAttachments.id, id));
   },
 };

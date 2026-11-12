@@ -94,20 +94,21 @@ export const downloadTicketAttachment: RequestHandler = async (
     throw validationError();
   }
 
-  const { attachment, contents } = await ticketAttachmentService.get(
+  const { attachment, stream } = await ticketAttachmentService.get(
     tenant.organizationId,
     parsedParams.data.id,
     parsedParams.data.attachmentId,
+    tenant.userId,
   );
   const filename = attachment.originalFilename.replace(/["\\]/g, "_");
   response.setHeader("Content-Type", attachment.contentType);
-  response.setHeader("Content-Length", String(contents.length));
   response.setHeader(
     "Content-Disposition",
     `attachment; filename="${filename}"`,
   );
   response.setHeader("X-Content-Type-Options", "nosniff");
-  response.status(200).send(contents);
+  response.status(200);
+  stream.pipe(response);
 };
 
 export const deleteTicketAttachment: RequestHandler = async (
@@ -126,6 +127,7 @@ export const deleteTicketAttachment: RequestHandler = async (
     tenant.organizationId,
     parsedParams.data.id,
     parsedParams.data.attachmentId,
+    tenant.userId,
   );
   response.status(204).end();
 };
