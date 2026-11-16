@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   Building2,
   LayoutDashboard,
   LifeBuoy,
@@ -209,6 +210,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>Inbox</span>
           </Link>
           <Link
+            href="/kb"
+            className={`nav-link ${pathname.startsWith("/kb") ? "nav-link-active" : ""}`}
+            aria-current={pathname.startsWith("/kb") ? "page" : undefined}
+            onClick={closeMobileNavigation}
+          >
+            <BookOpen size={17} strokeWidth={1.9} />
+            <span>Knowledge base</span>
+          </Link>
+          <Link
             href="/customers"
             className={`nav-link ${pathname.startsWith("/customers") ? "nav-link-active" : ""}`}
             aria-current={pathname.startsWith("/customers") ? "page" : undefined}
@@ -262,6 +272,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                       ? "Team"
                       : pathname.startsWith("/settings")
                         ? "Settings"
+                        : pathname.startsWith("/kb")
+                          ? "Knowledge base"
                         : "Workspace"}
               </li>
             </ol>
