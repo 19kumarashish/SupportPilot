@@ -19,3 +19,7 @@ export * from "./teams.js";
 export * from "./team-memberships.js";
 export * from "./organization-invitations.js";
 export * from "./organization-settings.js";
+export * from "./kb-categories.js";
+export * from "./kb-articles.js";
+export * from "./kb-article-versions.js";
+export * from "./kb-article-feedback.js";
