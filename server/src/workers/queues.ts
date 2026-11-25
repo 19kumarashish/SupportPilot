@@ -8,6 +8,7 @@ export const SLA_QUEUE_NAME = "sla-monitor";
 export const EMAIL_DLQ_NAME = "email-notifications-dlq";
 export const SLA_DLQ_NAME = "sla-monitor-dlq";
 export const ATTACHMENT_CLEANUP_QUEUE_NAME = "attachment-cleanup";
+export const KB_INDEXING_QUEUE_NAME = "kb-indexing";
 
 let connection: Redis | undefined;
 let emailQueue: Queue | undefined;
@@ -15,6 +16,7 @@ let slaQueue: Queue | undefined;
 let emailDlq: Queue | undefined;
 let slaDlq: Queue | undefined;
 let attachmentCleanupQueue: Queue | undefined;
+let kbIndexingQueue: Queue | undefined;
 
 const getConnection = (): Redis | null => {
   if (!env.REDIS_URL) return null;
@@ -56,6 +58,13 @@ export const getAttachmentCleanupQueue = (): Queue | null => {
   return attachmentCleanupQueue;
 };
 
+export const getKbIndexingQueue = (): Queue | null => {
+  const redis = getConnection();
+  if (!redis) return null;
+  kbIndexingQueue ??= new Queue(KB_INDEXING_QUEUE_NAME, queueOptions(redis));
+  return kbIndexingQueue;
+};
+
 export const getDeadLetterQueues = (): {
   email: Queue;
   sla: Queue;
@@ -75,6 +84,7 @@ export const closeQueues = async (): Promise<void> => {
     emailDlq?.close(),
     slaDlq?.close(),
     attachmentCleanupQueue?.close(),
+    kbIndexingQueue?.close(),
   ]);
   if (connection) {
     await connection.quit();
@@ -85,4 +95,5 @@ export const closeQueues = async (): Promise<void> => {
   emailDlq = undefined;
   slaDlq = undefined;
   attachmentCleanupQueue = undefined;
+  kbIndexingQueue = undefined;
 };

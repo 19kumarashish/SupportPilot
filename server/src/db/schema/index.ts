@@ -23,3 +23,5 @@ export * from "./kb-categories.js";
 export * from "./kb-articles.js";
 export * from "./kb-article-versions.js";
 export * from "./kb-article-feedback.js";
+export * from "./kb-article-chunks.js";
+export * from "./ai-usage-logs.js";

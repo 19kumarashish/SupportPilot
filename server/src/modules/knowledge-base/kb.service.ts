@@ -1,5 +1,6 @@
 import { AppError } from "../../shared/errors/app-error.js";
 import { recordAuditEvent } from "../../shared/security/audit.js";
+import { enqueueKbReindex } from "../../workers/jobs.js";
 import { organizationRepository } from "../organizations/repositories/organization.repository.js";
 import { kbRepository } from "./kb.repository.js";
 import type { KbArticleStatus, KbArticleVisibility, ListArticlesFilters, ListArticlesQuery } from "./kb.types.js";
@@ -69,6 +70,9 @@ export const kbService = {
     const article = await kbRepository.updateArticle(organizationId, id, input);
     if (!article) throw notFound("Article not found");
     await recordAuditEvent({ organizationId, actorUserId, eventType: "kb_article.updated", resourceType: "kb_article", resourceId: id });
+    if (article.status === "published") {
+      await enqueueKbReindex(organizationId, article.id);
+    }
     return article;
   },
 
@@ -76,6 +80,7 @@ export const kbService = {
     const article = await kbRepository.publishArticle(organizationId, id, actorUserId, changeSummary);
     if (!article) throw notFound("Article not found");
     await recordAuditEvent({ organizationId, actorUserId, eventType: "kb_article.published", resourceType: "kb_article", resourceId: id });
+    await enqueueKbReindex(organizationId, article.id);
     return article;
   },
 
@@ -83,6 +88,7 @@ export const kbService = {
     const article = await kbRepository.archiveArticle(organizationId, id, actorUserId);
     if (!article) throw notFound("Article not found");
     await recordAuditEvent({ organizationId, actorUserId, eventType: "kb_article.archived", resourceType: "kb_article", resourceId: id });
+    await enqueueKbReindex(organizationId, article.id);
     return article;
   },
 
@@ -90,6 +96,7 @@ export const kbService = {
     const article = await kbRepository.restoreVersion(organizationId, id, versionNumber, actorUserId, changeSummary);
     if (!article) throw notFound("Article or version not found");
     await recordAuditEvent({ organizationId, actorUserId, eventType: "kb_article.version_restored", resourceType: "kb_article", resourceId: id, metadata: { versionNumber } });
+    await enqueueKbReindex(organizationId, article.id);
     return article;
   },
 

@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Paperclip,
   Send,
+  Sparkles,
   Trash2,
   Upload,
   UserRound,
@@ -23,6 +24,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { draftTicketReply, type AiCitation } from "@/lib/ai-api";
 import { ApiError, apiBlob, apiJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { loadAllActiveAgents } from "@/lib/ticket-data";
@@ -119,6 +121,9 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   const [busyAction, setBusyAction] = useState("");
   const [commentBody, setCommentBody] = useState("");
   const [isInternal, setIsInternal] = useState(false);
+  const [aiCitations, setAiCitations] = useState<AiCitation[]>([]);
+  const [aiConfidence, setAiConfidence] = useState<number | null>(null);
+  const [aiError, setAiError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const actionLock = useRef(false);
@@ -245,8 +250,26 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
         body: JSON.stringify({ body, isInternal }),
       });
       setCommentBody("");
+      setAiCitations([]);
+      setAiConfidence(null);
+      setAiError("");
       setReloadKey((key) => key + 1);
     }, isInternal ? "Internal note added." : "Reply sent.");
+  }
+
+  async function generateAiDraft() {
+    setAiError("");
+    await runAction("ai-draft", async () => {
+      try {
+        const result = await draftTicketReply(ticketId);
+        setCommentBody(result.data.draft);
+        setAiCitations(result.data.citations);
+        setAiConfidence(result.data.confidence);
+      } catch (cause) {
+        setAiError(requestError(cause, "Could not generate an AI draft."));
+        throw cause;
+      }
+    });
   }
 
   async function loadMoreComments() {
@@ -582,6 +605,23 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 rows={4}
                 disabled={Boolean(busyAction)}
               />
+              <div className="composer-toolbar" style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => void generateAiDraft()}
+                  disabled={Boolean(busyAction)}
+                >
+                  {busyAction === "ai-draft" ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+                  AI Draft Reply
+                </button>
+                {aiConfidence !== null && (
+                  <span className="count-badge" aria-label="AI draft confidence">
+                    {Math.round(aiConfidence * 100)}% confidence
+                  </span>
+                )}
+                {aiError && <span className="field-error" role="alert">{aiError}</span>}
+              </div>
               <div className="composer-footer">
                 <label className="internal-toggle">
                   <input
@@ -601,6 +641,21 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
             </form>
           ) : (
             <div className="resolved-banner"><Check size={16} /> This ticket is {ticket.status}. Reopen it to reply.</div>
+          )}
+          {aiCitations.length > 0 && (
+            <section className="detail-card" aria-label="AI knowledge base citations" style={{ marginTop: "0.75rem" }}>
+              <h3>Sources used</h3>
+              <ul className="relation-list">
+                {aiCitations.map((citation) => (
+                  <li key={`${citation.articleId}-${citation.slug}`}>
+                    <Link href={`/kb/${citation.articleId}`}>
+                      {citation.title} ({Math.round(citation.score * 100)}%)
+                    </Link>
+                    {citation.excerpt && <p>{citation.excerpt}</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </section>
 

@@ -9,11 +9,13 @@ import {
   createAttachmentCleanupWorker,
   scheduleAttachmentCleanup,
 } from "./attachment-cleanup.worker.js";
+import { createKbIndexingWorker } from "./kb-indexing.worker.js";
 
 const emailWorker = createEmailNotificationWorker();
 const slaWorker = createSlaMonitorWorker();
 const attachmentCleanupWorker = createAttachmentCleanupWorker();
-const workers = [emailWorker, slaWorker, attachmentCleanupWorker].filter(
+const kbIndexingWorker = createKbIndexingWorker();
+const workers = [emailWorker, slaWorker, attachmentCleanupWorker, kbIndexingWorker].filter(
   (worker): worker is Worker => worker !== null,
 );
 
