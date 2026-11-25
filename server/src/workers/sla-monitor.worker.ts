@@ -4,6 +4,7 @@ import { Redis } from "ioredis";
 import { env } from "../config/env.js";
 import { recordAuditEvent } from "../shared/security/audit.js";
 import { ticketRepository } from "../modules/tickets/repositories/ticket.repository.js";
+import { invalidateTenantAnalytics } from "../modules/analytics/analytics.service.js";
 import { enqueueEmailJob } from "./jobs.js";
 import { SLA_QUEUE_NAME, getDeadLetterQueues } from "./queues.js";
 
@@ -26,6 +27,7 @@ export const createSlaMonitorWorker = (): Worker<SlaMonitorJob> | null => {
           ticket.id,
         );
         if (!breached) continue;
+        void invalidateTenantAnalytics(ticket.organizationId);
 
         await recordAuditEvent({
           organizationId: ticket.organizationId,

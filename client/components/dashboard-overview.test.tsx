@@ -8,7 +8,7 @@ import {
 } from "react-test-renderer";
 
 import { DashboardOverview } from "./dashboard-overview";
-import type { PageResult, Ticket } from "@/lib/ticket-types";
+import type { AnalyticsOverview, AnalyticsRange } from "@/lib/dashboard-data";
 
 const originalFetch = globalThis.fetch;
 const originalGlobals = new Map(
@@ -71,29 +71,70 @@ function installBrowserGlobals() {
   });
 }
 
-function ticket(overrides: Partial<Ticket> = {}): Ticket {
+function makeOverview(
+  range: AnalyticsRange = "30d",
+  totalTickets = 12,
+): AnalyticsOverview {
   return {
-    id: "ticket-1",
-    organizationId: "organization-1",
-    customerId: "customer-1",
-    assignedTo: null,
-    subject: "Cannot access account",
-    description: "The sign-in page reports an error.",
-    status: "open",
-    priority: "high",
-    createdAt: "2026-10-20T10:00:00.000Z",
-    updatedAt: "2026-10-20T10:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function pageResult(items: Ticket[], total = items.length): PageResult<Ticket> {
-  return {
-    items,
-    page: 1,
-    limit: 100,
-    total,
-    totalPages: total === 0 ? 0 : Math.ceil(total / 100),
+    range,
+    generatedAt: "2026-11-25T10:00:00.000Z",
+    kpis: {
+      totalTickets,
+      openCount: totalTickets === 0 ? 0 : 5,
+      inProgressCount: totalTickets === 0 ? 0 : 3,
+      resolvedCount: totalTickets === 0 ? 0 : 2,
+      closedCount: totalTickets === 0 ? 0 : 2,
+      unassignedCount: totalTickets === 0 ? 0 : 1,
+      slaBreachedCount: totalTickets === 0 ? 0 : 1,
+      slaOnTrackCount: totalTickets === 0 ? 0 : 11,
+      slaCompliancePercent: totalTickets === 0 ? 100 : 91.7,
+      avgFirstResponseMinutes: totalTickets === 0 ? null : 18,
+      avgResolutionMinutes: totalTickets === 0 ? null : 120,
+    },
+    volumeSeries: [
+      { date: "2026-11-24", created: 4, resolved: 2 },
+      { date: "2026-11-25", created: 3, resolved: 2 },
+    ],
+    byPriority:
+      totalTickets === 0
+        ? { urgent: 0, high: 0, medium: 0, low: 0 }
+        : { urgent: 2, high: 4, medium: 4, low: 2 },
+    byStatus:
+      totalTickets === 0
+        ? { open: 0, in_progress: 0, resolved: 0, closed: 0 }
+        : { open: 5, in_progress: 3, resolved: 2, closed: 2 },
+    workload:
+      totalTickets === 0
+        ? []
+        : [
+            {
+              id: "team-1",
+              name: "Tier 1 Support",
+              kind: "team",
+              openCount: 4,
+              resolvedCount: 2,
+              slaBreachedCount: 0,
+            },
+          ],
+    aiPerformance: {
+      agentDraftRequests: 6,
+      customerQaRequests: 10,
+      totalRequests: 16,
+      avgConfidenceScore: 0.86,
+      customerHandoffRate: 20,
+      aiDeflectionRate: 80,
+      totalPromptTokens: 1200,
+      totalCompletionTokens: 300,
+      topHelpfulArticles: [
+        {
+          id: "kb-1",
+          title: "Resetting your password",
+          slug: "resetting-your-password",
+          helpfulCount: 14,
+          notHelpfulCount: 1,
+        },
+      ],
+    },
   };
 }
 
@@ -119,98 +160,86 @@ function textContent(instance: ReactTestInstance): string {
 describe("DashboardOverview", () => {
   it("shows loading, an actionable error, and can retry into an empty state", async () => {
     installBrowserGlobals();
-    const responses: Array<(response: Response) => void> = [];
-    let requestCount = 0;
-    globalThis.fetch = (() => {
-      requestCount += 1;
-      return new Promise<Response>((resolve) => responses.push(resolve));
-    }) as typeof fetch;
+    let attempts = 0;
+
+    globalThis.fetch = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return jsonResponse(
+          { error: { message: "Analytics service temporarily unavailable." } },
+          503,
+        );
+      }
+      return jsonResponse({ success: true, data: makeOverview("30d", 0) });
+    };
 
     let renderer: ReactTestRenderer | undefined;
     await act(async () => {
       renderer = create(<DashboardOverview />);
-      await Promise.resolve();
     });
-
-    assert.equal(requestCount, 1);
-    assert.match(
-      textContent(renderer!.root.findByProps({ role: "status" })),
-      /Loading ticket overview/u,
-    );
-
     await act(async () => {
-      responses[0]?.(
-        jsonResponse(
-          { error: { message: "Ticket service is temporarily unavailable." } },
-          503,
-        ),
-      );
       await flushEffects();
     });
 
+    const alert = renderer?.root.findByProps({ role: "alert" });
+    assert.ok(alert);
     assert.match(
-      textContent(renderer!.root.findByProps({ role: "alert" })),
-      /Ticket service is temporarily unavailable/u,
+      textContent(alert),
+      /Analytics service temporarily unavailable/u,
     );
 
+    const retryButton = renderer?.root.find(
+      (node) => node.type === "button" && textContent(node).includes("Try again"),
+    );
     await act(async () => {
-      renderer?.root.findByType("button").props.onClick();
-      await Promise.resolve();
+      retryButton?.props.onClick();
     });
-    assert.equal(requestCount, 2);
-    assert.ok(renderer?.root.findByProps({ role: "status" }));
-
     await act(async () => {
-      responses[1]?.(jsonResponse({ data: pageResult([]) }));
       await flushEffects();
     });
 
-    assert.match(
-      renderer?.root.findByType("h2").children.join("") ?? "",
-      /first ticket/u,
+    assert.equal(attempts, 2);
+    assert.ok(
+      renderer?.root.findByProps({
+        children: "Your workspace is ready for its first ticket",
+      }),
     );
-    await act(async () => renderer?.unmount());
   });
 
-  it("renders recent ticket links and sampled breakdowns from the API page", async () => {
+  it("renders KPI cards, workload, AI performance, and switches analytics ranges", async () => {
     installBrowserGlobals();
-    const recent = ticket();
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
-      assert.equal(url.pathname, "/api/v1/tickets");
-      assert.equal(url.search, "?page=1&limit=100");
-      return jsonResponse({
-        data: pageResult(
-          [
-            recent,
-            ticket({
-              id: "ticket-2",
-              status: "resolved",
-              priority: "urgent",
-            }),
-          ],
-          250,
-        ),
-      });
-    }) as typeof fetch;
+    const requestedUrls: string[] = [];
+
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      const range: AnalyticsRange = url.includes("range=7d") ? "7d" : "30d";
+      return jsonResponse({ success: true, data: makeOverview(range, 12) });
+    };
 
     let renderer: ReactTestRenderer | undefined;
     await act(async () => {
       renderer = create(<DashboardOverview />);
+    });
+    await act(async () => {
       await flushEffects();
     });
 
-    const ticketLink = renderer?.root.findByProps({
-      href: `/tickets/${recent.id}`,
+    assert.match(requestedUrls[0] ?? "", /\/analytics\/overview\?range=30d$/u);
+    const renderedText = renderer ? textContent(renderer.root) : "";
+    assert.match(renderedText, /91\.7%/u);
+    assert.match(renderedText, /80%/u);
+    assert.ok(renderer?.root.findByProps({ children: "Tier 1 Support" }));
+    assert.ok(renderer?.root.findByProps({ children: "Resetting your password" }));
+
+    const sevenDayButton = renderer?.root.findByProps({ children: "7 days" });
+    await act(async () => {
+      sevenDayButton?.props.onClick();
     });
-    assert.equal(ticketLink?.findByType("strong").children.join(""), recent.subject);
-    assert.ok(renderer?.root.findByProps({ children: "250" }));
-    assert.match(textContent(renderer!.root), /Counts from the latest 2 tickets/u);
-    assert.match(textContent(renderer!.root), /Latest 2 tickets/u);
-    assert.equal(
-      renderer?.root.findAllByProps({ className: "dashboard-stat-card" }).length,
-      4,
-    );
-    await act(async () => renderer?.unmount());
+    await act(async () => {
+      await flushEffects();
+    });
+
+    assert.match(requestedUrls[1] ?? "", /\/analytics\/overview\?range=7d$/u);
   });
 });
