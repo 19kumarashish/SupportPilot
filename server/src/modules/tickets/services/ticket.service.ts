@@ -12,6 +12,7 @@ import type {
   UpdateTicketInput,
 } from "../types/ticket.types.js";
 import { teamRepository } from "../../teams/repositories/team.repository.js";
+import { invalidateTenantAnalytics } from "../../analytics/analytics.service.js";
 
 const ticketNotFound = (): AppError =>
   new AppError(404, "TICKET_NOT_FOUND", "Ticket not found");
@@ -236,6 +237,7 @@ export const ticketService = {
       );
     }
 
+    void invalidateTenantAnalytics(organizationId);
     return toTicketResponse(ticket);
   },
 
@@ -281,6 +283,7 @@ export const ticketService = {
       throw ticketNotFound();
     }
 
+    void invalidateTenantAnalytics(organizationId);
     return toTicketResponse(ticket);
   },
 
@@ -312,6 +315,7 @@ export const ticketService = {
       throw ticketNotFound();
     }
 
+    void invalidateTenantAnalytics(organizationId);
     return toTicketResponse(ticket);
   },
 

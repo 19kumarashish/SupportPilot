@@ -10,6 +10,7 @@ import { ticketPriorities } from "../../db/schema/tickets.js";
 import { parseTicketAttachmentUpload } from "./attachments/attachment.upload.js";
 import { ticketAttachmentService } from "./attachments/attachment.service.js";
 import { ticketAttachmentRepository } from "./attachments/attachment.repository.js";
+import { invalidateTenantAnalytics } from "../analytics/analytics.service.js";
 
 export const customerTicketRouter: Router = Router();
 customerTicketRouter.use(requireCustomerAuth);
@@ -94,6 +95,7 @@ customerTicketRouter.post("/", async (request, response) => {
     stream.pipe(response);
   });
   if (!ticket) throw new AppError(500, "TICKET_CREATION_FAILED", "Failed to create ticket");
+  void invalidateTenantAnalytics(customer.organizationId);
   response.status(201).json({ success: true, data: { ticket } });
 });
 

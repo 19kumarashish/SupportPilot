@@ -14,6 +14,7 @@ import { customerKbRouter } from "../modules/knowledge-base/customer-kb.routes.j
 import { publicKbRouter } from "../modules/knowledge-base/public-kb.routes.js";
 import { aiRouter } from "../modules/ai/ai.routes.js";
 import { customerAiRouter } from "../modules/ai/customer-ai.routes.js";
+import { analyticsRouter } from "../modules/analytics/analytics.routes.js";
 
 export const apiRouter: Router = Router();
 
@@ -31,3 +32,4 @@ apiRouter.use("/customer/kb", customerKbRouter);
 apiRouter.use("/public/kb/:orgSlug", publicKbRouter);
 apiRouter.use("/ai", aiRouter);
 apiRouter.use("/customer/ai", customerAiRouter);
+apiRouter.use("/analytics", analyticsRouter);

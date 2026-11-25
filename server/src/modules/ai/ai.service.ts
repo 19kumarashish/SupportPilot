@@ -8,6 +8,7 @@ import { ticketCommentRepository } from "../tickets/comments/comment.repository.
 import { ticketRepository } from "../tickets/repositories/ticket.repository.js";
 import { chunkArticle } from "./kb-chunker.js";
 import { ragRepository } from "./rag.repository.js";
+import { invalidateTenantAnalytics } from "../analytics/analytics.service.js";
 
 export interface DraftReplyResult {
   draft: string;
@@ -172,6 +173,7 @@ export const aiService = {
       confidenceScore: reply.confidence.toFixed(4),
       handedOff: false,
     });
+    void invalidateTenantAnalytics(organizationId);
 
     return {
       draft: reply.answer,
@@ -249,6 +251,7 @@ export const aiService = {
       confidenceScore: reply.confidence.toFixed(4),
       handedOff,
     });
+    void invalidateTenantAnalytics(organizationId);
 
     if (handedOff) {
       return {
