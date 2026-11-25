@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: supportpilot_ci
           POSTGRES_DB: supportpilot_ci_test
