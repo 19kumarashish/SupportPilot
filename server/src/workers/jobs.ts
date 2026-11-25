@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 
 import { emailProvider, shouldQueueEmailNotifications } from "../modules/auth/services/email-provider.js";
+import { aiService } from "../modules/ai/ai.service.js";
 import {
   getEmailQueue,
+  getKbIndexingQueue,
   getSlaQueue,
 } from "./queues.js";
 
@@ -106,4 +108,20 @@ export const enqueueSlaMonitor = async (): Promise<void> => {
   await queue.add("scan", { requestedAt: new Date().toISOString() }, {
     jobId: `sla-scan:${Math.floor(Date.now() / 60_000)}`,
   });
+};
+
+export const enqueueKbReindex = async (
+  organizationId: string,
+  articleId: string,
+): Promise<void> => {
+  const queue = getKbIndexingQueue();
+  if (!queue) {
+    await aiService.reindexArticle(organizationId, articleId);
+    return;
+  }
+  await queue.add(
+    "reindex",
+    { organizationId, articleId },
+    { jobId: `reindex:${organizationId}:${articleId}`, removeOnComplete: 500 },
+  );
 };

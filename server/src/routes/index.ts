@@ -12,6 +12,8 @@ import { teamRouter } from "../modules/teams/team.routes.js";
 import { kbRouter } from "../modules/knowledge-base/kb.routes.js";
 import { customerKbRouter } from "../modules/knowledge-base/customer-kb.routes.js";
 import { publicKbRouter } from "../modules/knowledge-base/public-kb.routes.js";
+import { aiRouter } from "../modules/ai/ai.routes.js";
+import { customerAiRouter } from "../modules/ai/customer-ai.routes.js";
 
 export const apiRouter: Router = Router();
 
@@ -27,3 +29,5 @@ apiRouter.use("/teams", teamRouter);
 apiRouter.use("/kb", kbRouter);
 apiRouter.use("/customer/kb", customerKbRouter);
 apiRouter.use("/public/kb/:orgSlug", publicKbRouter);
+apiRouter.use("/ai", aiRouter);
+apiRouter.use("/customer/ai", customerAiRouter);

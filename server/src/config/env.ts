@@ -57,6 +57,14 @@ const envSchema = z.object({
   MALWARE_SCANNER_API_KEY: z.string().min(1).optional(),
   CLAMAV_HOST: z.string().min(1).default("127.0.0.1"),
   CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+  AI_PROVIDER: z.enum(["mock", "openai"]).default("mock"),
+  AI_API_KEY: z.string().min(1).optional(),
+  AI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  AI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  AI_CHAT_MODEL: z.string().default("gpt-4o-mini"),
+  AI_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.65),
+  AI_DAILY_REQUEST_LIMIT: z.coerce.number().int().positive().default(1000),
+  AI_DAILY_TOKEN_LIMIT: z.coerce.number().int().positive().default(500000),
 }).superRefine((values, context) => {
   if (
     values.NODE_ENV === "production" &&
@@ -87,6 +95,16 @@ const envSchema = z.object({
       code: "custom",
       path: ["MALWARE_SCANNER_URL"],
       message: "MALWARE_SCANNER_URL is required for the HTTP malware scanner",
+    });
+  }
+  if (
+    values.AI_PROVIDER === "openai" &&
+    !values.AI_API_KEY
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["AI_API_KEY"],
+      message: "AI_API_KEY is required when AI_PROVIDER=openai",
     });
   }
 });
